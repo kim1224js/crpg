@@ -8,5 +8,6 @@ data class LoginProfileEntity(
     @PrimaryKey val id: Long = 1L,
     val playerName: String,
     val autoLogin: Boolean,
-    val lastLoginAt: Long
+    val lastLoginAt: Long,
+    val gold: Int = 10
 )
