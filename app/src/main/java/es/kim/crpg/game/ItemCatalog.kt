@@ -48,6 +48,12 @@ object ItemCatalog {
             "WEAPON" -> "무기"; "ARMOR" -> "방어구 · 갑옷"; "HELMET" -> "방어구 · 투구"
             "BOOTS" -> "방어구 · 신발"; else -> item.category
         }
-        return EquipmentOption(categoryName, lines, item.specialEffect)
+        val effectDescription = when (item.specialEffect) {
+            "DOUBLE_HIT" -> "2연타: 공격력 3으로 같은 대상을 두 번 공격"
+            "LINE_THRUST" -> "직선 찌르기: 사거리 안의 일직선 적을 모두 공격"
+            "KILL_PIERCE" -> "처치 관통: 앞의 적이 죽으면 뒤의 적에게 탄환 관통"
+            else -> item.specialEffect
+        }
+        return EquipmentOption(categoryName, lines, effectDescription)
     }
 }

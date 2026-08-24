@@ -27,6 +27,7 @@ import android.widget.Toast
 import com.google.androidgamesdk.GameActivity
 import es.kim.crpg.data.GameDatabase
 import es.kim.crpg.data.GameConfigEntity
+import es.kim.crpg.data.DeceasedCharacterEntity
 import es.kim.crpg.data.LoginProfileEntity
 import es.kim.crpg.data.OwnedItemEntity
 import es.kim.crpg.data.InventoryRepository
@@ -41,6 +42,9 @@ import es.kim.crpg.ui.ItemGridView
 import es.kim.crpg.ui.GameUiTheme
 import es.kim.crpg.ui.dungeon.DungeonDemoView
 import java.util.concurrent.Executors
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.math.min
 
 class MainActivity : GameActivity() {
@@ -48,6 +52,7 @@ class MainActivity : GameActivity() {
     private lateinit var nameInput: EditText
     private lateinit var loginButton: Button
     private lateinit var autoLoginCheckBox: CheckBox
+    private lateinit var deathNoticeText: TextView
     private lateinit var villageInteractionOverlay: FrameLayout
     private lateinit var generalStoreHotspot: View
     private lateinit var blacksmithHotspot: View
@@ -335,6 +340,15 @@ class MainActivity : GameActivity() {
         }
         loginOverlay.addView(autoLoginCheckBox)
 
+        deathNoticeText = TextView(this).apply {
+            visibility = View.GONE
+            setTextColor(0xFFFFB7A8.toInt())
+            textSize = 17f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+        }
+        loginOverlay.addView(deathNoticeText)
+
         loginOverlay.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             positionLoginControls()
         }
@@ -356,6 +370,7 @@ class MainActivity : GameActivity() {
         val offsetY = (loginOverlay.height - imageHeight) / 2f
 
         placeView(autoLoginCheckBox, offsetX, offsetY, scale, 505f, 474f, 270f, 36f)
+        placeView(deathNoticeText, offsetX, offsetY, scale, 300f, 392f, 680f, 78f)
         placeView(nameInput, offsetX, offsetY, scale, 400f, 515f, 480f, 75f)
         placeView(loginButton, offsetX, offsetY, scale, 510f, 625f, 260f, 60f)
     }
@@ -400,7 +415,9 @@ class MainActivity : GameActivity() {
             currentPlayerId = profile.id
             playerGold = profile.gold
 
-            if (gameDatabase.ownedItemDao().countForOwner(profile.id) == 0) {
+            if (gameDatabase.ownedItemDao().countForOwner(profile.id) == 0 &&
+                gameDatabase.deceasedCharacterDao().count() == 0
+            ) {
                 gameDatabase.ownedItemDao().insert(
                     OwnedItemEntity(
                         ownerId = profile.id,
@@ -464,6 +481,8 @@ class MainActivity : GameActivity() {
         inputMethodManager.hideSoftInputFromWindow(nameInput.windowToken, 0)
         nameInput.clearFocus()
         loginOverlay.visibility = View.GONE
+        deathNoticeText.visibility = View.GONE
+        setVillageHotspotsEnabled(true)
         hideSystemUi()
     }
 
@@ -1082,11 +1101,13 @@ class MainActivity : GameActivity() {
         val overlay = shopOverlay ?: return
         val isWarehouseScreen = overlay.contentDescription == "inn_warehouse"
         val isBlacksmithScreen = overlay.contentDescription == "blacksmith_store"
+        val isDungeonLoadout = overlay.contentDescription == "dungeon_loadout"
         (overlay.parent as? ViewGroup)?.removeView(overlay)
         shopOverlay = null
         when {
             isWarehouseScreen -> showInnWarehouse()
             isBlacksmithScreen -> showShopInterface(true)
+            isDungeonLoadout -> showDungeonLoadout()
             else -> showShopInterface(false)
         }
     }
@@ -1110,11 +1131,44 @@ class MainActivity : GameActivity() {
     }
 
     private fun showManorEntrance() {
+        databaseExecutor.execute {
+            val deceased = gameDatabase.deceasedCharacterDao().getAll()
+            runOnUiThread { showManorWithDeceasedList(deceased) }
+        }
+    }
+
+    private fun showManorWithDeceasedList(deceased: List<DeceasedCharacterEntity>) {
         val content = createFacilityContent("저택", "ui/village/building_manor_dungeon.png")
-        content.addView(facilityChoicePanel(
-            "저택", "가문의 재산과 세대 계승을 관리하는 장소입니다.\n\n사망하면 다음 캐릭터가 창고의 장비와 보유 골드를 이어받습니다.",
-            "가문 정보", "저택의 성장 콘텐츠는 아직 설계 전입니다."
-        ), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        content.addView(TextView(this).apply {
+            text = "가문의 기록 · 창고 장비와 골드는 다음 세대로 계승됩니다."
+            setTextColor(Color.WHITE); textSize = 16f; gravity = Gravity.CENTER
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)))
+        val records = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(12), dp(18), dp(12))
+            background = antiquePanel(COLOR_LEATHER_DARK, COLOR_GOLD_DARK, 10f, 1)
+            if (deceased.isEmpty()) {
+                addView(TextView(this@MainActivity).apply {
+                    text = "아직 기록된 사망자가 없습니다."
+                    setTextColor(0xFFCCBFA8.toInt()); textSize = 17f; gravity = Gravity.CENTER
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(90)))
+            } else {
+                val dateFormat = SimpleDateFormat("yyyy.MM.dd HH:mm", Locale.KOREA)
+                deceased.forEach { character ->
+                    addView(TextView(this@MainActivity).apply {
+                        text = "${character.generation}세 · ${character.playerName}\n도달 지하 ${character.reachedFloor}층 · 생존 ${character.survivedTurns}턴 · ${dateFormat.format(Date(character.diedAt))}"
+                        setTextColor(Color.WHITE); textSize = 16f
+                        setPadding(dp(14), dp(12), dp(14), dp(12))
+                        background = antiquePanel(0xC51B1410.toInt(), COLOR_GOLD_DARK, 7f, 1)
+                    }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = dp(10)
+                    })
+                }
+            }
+        }
+        content.addView(ScrollView(this).apply { addView(records) }, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
+        ))
     }
 
     private fun facilityChoicePanel(
@@ -1140,26 +1194,21 @@ class MainActivity : GameActivity() {
         (old?.parent as? ViewGroup)?.removeView(old)
         shopOverlay = null
         val content = createFacilityContent("지하 출발 준비", "ui/village/building_manor_dungeon.png")
+        shopOverlay?.contentDescription = "dungeon_loadout"
         content.addView(TextView(this).apply {
             text = "지하 1층 출발 · 사망 시 아래 인벤토리의 장비와 소지품을 모두 잃습니다."
             setTextColor(0xFFFFC6A3.toInt()); textSize = 16f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)))
-        val carriedWeapons = ownedItems.filter { it.container == "INVENTORY" && ItemCatalog.isWeapon(it.itemCode) }
-        if (dungeonEquippedWeaponCode !in carriedWeapons.map { it.itemCode }) {
-            dungeonEquippedWeaponCode = carriedWeapons.firstOrNull()?.itemCode
-        }
-        content.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER
-            addView(TextView(this@MainActivity).apply {
-                text = "착용 무기  "; setTextColor(COLOR_GOLD); typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
-            })
-            carriedWeapons.forEach { owned ->
-                val selected = owned.itemCode == dungeonEquippedWeaponCode
-                addView(antiqueButton(if (selected) "✓ ${owned.displayName}" else owned.displayName, dp(130), dp(38)).apply {
-                    setOnClickListener { equipDungeonWeapon(owned) }
-                }, LinearLayout.LayoutParams(dp(130), dp(38)).apply { marginEnd = dp(8) })
-            }
-            if (carriedWeapons.isEmpty()) addView(TextView(this@MainActivity).apply { text = "착용 가능한 무기 없음"; setTextColor(Color.LTGRAY) })
+        val carriedWeapons = ownedItems
+            .filter { it.container == "INVENTORY" && ItemCatalog.isWeapon(it.itemCode) }
+            .sortedBy { it.slotIndex }
+        dungeonEquippedWeaponCode = carriedWeapons.firstOrNull()?.itemCode
+        content.addView(TextView(this).apply {
+            text = carriedWeapons.firstOrNull()?.let {
+                "자동 착용 · 가장 왼쪽 무기: ${it.displayName} · 던전 전투 중 교체 가능"
+            } ?: "착용 가능한 무기가 없습니다."
+            setTextColor(if (carriedWeapons.isEmpty()) Color.LTGRAY else COLOR_GOLD)
+            textSize = 16f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)))
         content.addView(createInventoryGrid(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
@@ -1168,18 +1217,6 @@ class MainActivity : GameActivity() {
             setOnClickListener { showDungeonEntryConfirmation() }
         }, LinearLayout.LayoutParams(dp(170), dp(46)).apply { marginStart = dp(14) })
         content.addView(controls, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)))
-    }
-
-    private fun equipDungeonWeapon(item: OwnedItemEntity) {
-        databaseExecutor.execute {
-            gameDatabase.runInTransaction {
-                gameDatabase.ownedItemDao().clearEquipped(currentPlayerId)
-                gameDatabase.ownedItemDao().setEquipped(item.id)
-            }
-            ownedItems = gameDatabase.ownedItemDao().getForOwner(currentPlayerId)
-            dungeonEquippedWeaponCode = item.itemCode
-            runOnUiThread { showDungeonLoadout() }
-        }
     }
 
     private fun showDungeonEntryConfirmation() {
@@ -1230,6 +1267,9 @@ class MainActivity : GameActivity() {
                 },
                 onExitDungeon = { acquiredItems, acquiredGold ->
                     exitDungeonSafely(acquiredItems, acquiredGold)
+                },
+                onPlayerDeath = { floor, survivedTurns, killerCode, killerName ->
+                    handlePlayerDeath(floor, survivedTurns, killerCode, killerName)
                 }
             ),
             FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
@@ -1253,6 +1293,75 @@ class MainActivity : GameActivity() {
         settleDungeonRun(acquiredItems, acquiredGold, consumeReturnStone = false)
     }
 
+    private fun handlePlayerDeath(
+        reachedFloor: Int,
+        survivedTurns: Int,
+        killerCode: String?,
+        killerName: String?
+    ) {
+        databaseExecutor.execute {
+            val profile = gameDatabase.loginProfileDao().getById(currentPlayerId)
+            val deceasedName = profile?.playerName ?: "이름 없는 모험가"
+            val generation = gameDatabase.deceasedCharacterDao().count() + 1
+            gameDatabase.runInTransaction {
+                gameDatabase.deceasedCharacterDao().insert(
+                    DeceasedCharacterEntity(
+                        playerName = deceasedName,
+                        generation = generation,
+                        reachedFloor = reachedFloor,
+                        survivedTurns = survivedTurns,
+                        diedAt = System.currentTimeMillis()
+                    )
+                )
+                gameDatabase.ownedItemDao().deleteContainer(currentPlayerId, "INVENTORY")
+                profile?.let {
+                    gameDatabase.loginProfileDao().save(
+                        it.copy(autoLogin = false, lastLoginAt = System.currentTimeMillis())
+                    )
+                }
+                ownedItems = gameDatabase.ownedItemDao().getForOwner(currentPlayerId)
+            }
+            dungeonEquippedWeaponCode = null
+            val deathMessage = monsterDeathMessage(killerCode, killerName)
+            runOnUiThread { showGameOver(deceasedName, generation, deathMessage) }
+        }
+    }
+
+    private fun monsterDeathMessage(killerCode: String?, killerName: String?): String = when (killerCode) {
+        "spider" -> "거미의 독니에 몸이 굳은 채, 어둠 속 거미줄에 매달린 먹잇감이 되었다."
+        "wild_dog" -> "들개의 이빨에 쓰러져, 빛 한 점 없는 바닥에서 무자비하게 뜯어 먹혔다."
+        "bandit" -> "도적의 칼날에 무자비하게 썰려, 이름 없는 전리품처럼 차가운 바닥에 버려졌다."
+        "slime" -> "슬라임의 끈적한 몸속에 삼켜져, 비명과 갑옷까지 흔적 없이 녹아내렸다."
+        else -> "${killerName ?: "정체불명의 괴물"}에게 처참히 쓰러져, 탑의 어둠 속에서 이름마저 잊혔다."
+    }
+
+    private fun showGameOver(deceasedName: String, generation: Int, deathMessage: String) {
+        AlertDialog.Builder(this)
+            .setTitle("GAME OVER")
+            .setMessage("$deathMessage\n\n${generation}세 $deceasedName 캐릭터가 사망했습니다.\n던전에 가져간 장비와 소지품을 모두 잃었습니다.")
+            .setCancelable(false)
+            .setPositiveButton("새 캐릭터 만들기") { _, _ ->
+                returnToLoginAfterDeath(deceasedName, generation, deathMessage)
+            }
+            .show()
+    }
+
+    private fun returnToLoginAfterDeath(deceasedName: String, generation: Int, deathMessage: String) {
+        shopOverlay?.let { (it.parent as? ViewGroup)?.removeView(it) }
+        shopOverlay = null
+        isDungeonActive = false
+        hasEnteredVillage = false
+        nameInput.setText("")
+        autoLoginCheckBox.isChecked = false
+        deathNoticeText.text = "$deathMessage\n${generation}세 $deceasedName 사망 · 새 캐릭터 이름을 입력하세요."
+        deathNoticeText.visibility = View.VISIBLE
+        loginOverlay.visibility = View.VISIBLE
+        loginOverlay.bringToFront()
+        globalSettingsOverlay.bringToFront()
+        setVillageHotspotsEnabled(false)
+        updateBackgroundMusic()
+    }
+
     private fun settleDungeonRun(acquiredItems: Map<String, Int>, acquiredGold: Int, consumeReturnStone: Boolean) {
         databaseExecutor.execute {
             var settlementSucceeded = !consumeReturnStone
@@ -1273,8 +1382,9 @@ class MainActivity : GameActivity() {
                 itemsToSettle.forEach { (code, quantity) ->
                     val existing = dao.findItem(currentPlayerId, "INVENTORY", code)
                     if (existing != null) {
-                        dao.updateQuantity(existing.id, existing.quantity + quantity)
-                    } else {
+                        val newQuantity = existing.quantity + quantity
+                        if (newQuantity > 0) dao.updateQuantity(existing.id, newQuantity) else dao.deleteById(existing.id)
+                    } else if (quantity > 0) {
                         val usedSlots = dao.getForOwner(currentPlayerId).filter { it.container == "INVENTORY" }.map { it.slotIndex }.toSet()
                         val emptySlot = (0 until gameInt("inventory_capacity", 16)).firstOrNull { it !in usedSlots } ?: return@forEach
                         val catalogItem = ItemCatalog.get(code) ?: return@forEach

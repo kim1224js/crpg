@@ -36,4 +36,7 @@ interface OwnedItemDao {
 
     @Query("DELETE FROM owned_item WHERE id = :id")
     fun deleteById(id: Long)
+
+    @Query("DELETE FROM owned_item WHERE ownerId = :ownerId AND container = :container")
+    fun deleteContainer(ownerId: Long, container: String)
 }
