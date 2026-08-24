@@ -1,17 +1,74 @@
+# Android / Gradle generated files
 *.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
-/build
-**/build/
+.gradle/
 .kotlin/
-/captures
-.externalNativeBuild
-.cxx
+build/
+**/build/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Local Android SDK and machine-specific configuration
+local.properties
+**/local.properties
+
+# Android Studio local state
+.idea/
+
+# Signing keys and signing configuration
+*.jks
+*.keystore
+*.p12
+*.pfx
+keystore.properties
+signing.properties
+
+# Secrets and environment overrides
+.env
+.env.*
+!.env.example
+secrets.properties
+*.secret
+*.secrets
+google-services.json
+GoogleService-Info.plist
+
+# Private keys and certificates
+*.pem
+*.key
+*.cer
+*.crt
+
+# Local databases, preferences, and runtime data
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+shared_prefs/
+databases/
+
+# Logs, crash dumps, and profiling output
+*.log
+*.hprof
+*.trace
+*.prof
+*.profm
+hs_err_pid*
+
+# Packaged application output
+*.apk
+*.aab
+*.apks
+*.mapping
+
+# Temporary and operating-system files
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
 local.properties
