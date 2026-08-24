@@ -27,5 +27,10 @@ data class OwnedItemEntity(
     val displayName: String,
     val quantity: Int,
     val container: String,
-    val slotIndex: Int
+    val slotIndex: Int,
+    val isEquipped: Boolean = false,
+    val dungeonUseCount: Int = 0,
+    val durability: Int = 3,
+    val isIdentified: Boolean = true,
+    val appraisedGrade: String? = null
 )

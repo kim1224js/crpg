@@ -35,7 +35,8 @@ class InventoryRepository(private val database: GameDatabase) {
                 dao.updateQuantity(existing.id, existing.quantity + addedQuantity)
             } else {
                 val usedSlots = dao.getForOwner(ownerId).filter { it.container == "INVENTORY" }.map { it.slotIndex }.toSet()
-                val emptySlot = (0 until 10).firstOrNull { it !in usedSlots }
+                val inventoryCapacity = database.gameMasterDao().getConfigInt("inventory_capacity") ?: 16
+                val emptySlot = (0 until inventoryCapacity).firstOrNull { it !in usedSlots }
                 if (emptySlot == null) {
                     message = "인벤토리가 가득 찼습니다."
                     return@runInTransaction
@@ -58,7 +59,11 @@ class InventoryRepository(private val database: GameDatabase) {
 
     fun transfer(ownerId: Long, item: OwnedItemEntity): Result {
         val targetContainer = if (item.container == "INVENTORY") "STORAGE" else "INVENTORY"
-        val targetCapacity = if (targetContainer == "INVENTORY") 10 else 20
+        val targetCapacity = if (targetContainer == "INVENTORY") {
+            database.gameMasterDao().getConfigInt("inventory_capacity") ?: 16
+        } else {
+            database.gameMasterDao().getConfigInt("storage_capacity") ?: 20
+        }
         var message = "이동할 수 없습니다."
         database.runInTransaction {
             val dao = database.ownedItemDao()
@@ -77,6 +82,27 @@ class InventoryRepository(private val database: GameDatabase) {
                 dao.updateLocation(item.id, targetContainer, emptySlot)
             }
             message = if (targetContainer == "INVENTORY") "인벤토리로 이동했습니다." else "창고에 보관했습니다."
+        }
+        return Result(message, database.ownedItemDao().getForOwner(ownerId))
+    }
+
+    fun moveToSlot(ownerId: Long, itemId: Long, targetContainer: String, targetSlot: Int): Result {
+        var message = "아이템을 이동할 수 없습니다."
+        database.runInTransaction {
+            val dao = database.ownedItemDao()
+            val source = dao.getForOwner(ownerId).firstOrNull { it.id == itemId } ?: return@runInTransaction
+            if (source.container == targetContainer && source.slotIndex == targetSlot) return@runInTransaction
+            val target = dao.findAtSlot(ownerId, targetContainer, targetSlot)
+            if (target == null) {
+                dao.updateLocation(source.id, targetContainer, targetSlot)
+                message = "${source.displayName}을 이동했습니다."
+            } else {
+                val temporarySlot = -1_000_000 - target.id.toInt().coerceAtMost(999_999)
+                dao.updateLocation(target.id, target.container, temporarySlot)
+                dao.updateLocation(source.id, targetContainer, targetSlot)
+                dao.updateLocation(target.id, source.container, source.slotIndex)
+                message = "아이템 위치를 바꿨습니다."
+            }
         }
         return Result(message, database.ownedItemDao().getForOwner(ownerId))
     }
