@@ -1,0 +1,16 @@
+CRPG 개발자 게임북
+업데이트 기준: DB v32
+
+01_COMMON_CONFIG.txt  공통 수치와 변경 지점
+02_GAME_FLOW.txt      로그인부터 사망·계승까지의 흐름
+03_VILLAGE.txt        마을 건물과 기능
+04_ITEMS.txt          아이템·장비·소모품 규칙
+05_COMBAT.txt         턴, 이동, 공격, 상태이상
+06_DUNGEON.txt        맵, 층 진행, 회복 시설, 귀환
+07_MONSTERS.txt       1~15층 몬스터 요약
+08_SAVE_DATABASE.txt  Room DB와 원정 자동 저장
+09_UI_AUDIO.txt       공통 UI, 스크롤, 에셋, 음악·효과음
+10_ITEM_VALUES.txt    장비·소모품 가치, 판매가, 감정 비용
+11_GACHA_BOXES.txt    떠돌이 상인과 등급별 뽑기상자
+
+상세 수치와 과거 변경 기록은 상위 경로의 book.txt도 함께 참고한다.

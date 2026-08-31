@@ -35,7 +35,7 @@ class InventoryRepository(private val database: GameDatabase) {
                 dao.updateQuantity(existing.id, existing.quantity + addedQuantity)
             } else {
                 val usedSlots = dao.getForOwner(ownerId).filter { it.container == "INVENTORY" }.map { it.slotIndex }.toSet()
-                val inventoryCapacity = database.gameMasterDao().getConfigInt("inventory_capacity") ?: 16
+                val inventoryCapacity = database.gameMasterDao().getConfigInt("inventory_capacity") ?: 25
                 val emptySlot = (0 until inventoryCapacity).firstOrNull { it !in usedSlots }
                 if (emptySlot == null) {
                     message = "인벤토리가 가득 찼습니다."
@@ -60,7 +60,7 @@ class InventoryRepository(private val database: GameDatabase) {
     fun transfer(ownerId: Long, item: OwnedItemEntity): Result {
         val targetContainer = if (item.container == "INVENTORY") "STORAGE" else "INVENTORY"
         val targetCapacity = if (targetContainer == "INVENTORY") {
-            database.gameMasterDao().getConfigInt("inventory_capacity") ?: 16
+            database.gameMasterDao().getConfigInt("inventory_capacity") ?: 25
         } else {
             database.gameMasterDao().getConfigInt("storage_capacity") ?: 20
         }
@@ -89,6 +89,13 @@ class InventoryRepository(private val database: GameDatabase) {
     fun moveToSlot(ownerId: Long, itemId: Long, targetContainer: String, targetSlot: Int): Result {
         var message = "아이템을 이동할 수 없습니다."
         database.runInTransaction {
+            val capacityKey = if (targetContainer == "STORAGE") "storage_capacity" else "inventory_capacity"
+            val fallbackCapacity = if (targetContainer == "STORAGE") 20 else 25
+            val targetCapacity = database.gameMasterDao().getConfigInt(capacityKey) ?: fallbackCapacity
+            if (targetContainer !in setOf("INVENTORY", "STORAGE") || targetSlot !in 0 until targetCapacity) {
+                message = "사용할 수 없는 아이템 칸입니다."
+                return@runInTransaction
+            }
             val dao = database.ownedItemDao()
             val source = dao.getForOwner(ownerId).firstOrNull { it.id == itemId } ?: return@runInTransaction
             if (source.container == targetContainer && source.slotIndex == targetSlot) return@runInTransaction
@@ -105,5 +112,47 @@ class InventoryRepository(private val database: GameDatabase) {
             }
         }
         return Result(message, database.ownedItemDao().getForOwner(ownerId))
+    }
+
+    fun sell(ownerId: Long, itemId: Long): Result {
+        var message = "판매할 수 없습니다."
+        var updatedGold: Int? = null
+        database.runInTransaction {
+            val dao = database.ownedItemDao()
+            val item = dao.getForOwner(ownerId).firstOrNull { it.id == itemId } ?: return@runInTransaction
+            if (!item.isSellable) { message = "무료로 받은 아이템은 판매할 수 없습니다."; return@runInTransaction }
+            val definition = database.gameMasterDao().getItem(item.itemCode) ?: return@runInTransaction
+            if (definition.isConsumable) { message = "장비만 판매할 수 있습니다."; return@runInTransaction }
+            val profile = database.loginProfileDao().getById(ownerId) ?: return@runInTransaction
+            val salePrice = definition.basePrice / 2
+            dao.deleteById(item.id)
+            updatedGold = profile.gold + salePrice
+            database.loginProfileDao().updateGold(ownerId, updatedGold!!)
+            message = "${item.displayName}을 ${salePrice}G에 판매했습니다."
+        }
+        return Result(message, database.ownedItemDao().getForOwner(ownerId), updatedGold)
+    }
+
+    fun grantFreeMerchantBox(ownerId: Long, itemCode: String, displayName: String): Result {
+        var message = "무료 상자를 받을 수 없습니다."
+        var successGold: Int? = null
+        database.runInTransaction {
+            val profile = database.loginProfileDao().getById(ownerId) ?: return@runInTransaction
+            val dao = database.ownedItemDao()
+            val usedSlots = dao.getForOwner(ownerId).filter { it.container == "INVENTORY" }.map { it.slotIndex }.toSet()
+            val capacity = database.gameMasterDao().getConfigInt("inventory_capacity") ?: 25
+            val emptySlot = (0 until capacity).firstOrNull { it !in usedSlots }
+            if (emptySlot == null) {
+                message = "인벤토리가 가득 찼습니다."
+                return@runInTransaction
+            }
+            dao.insert(OwnedItemEntity(
+                ownerId = ownerId, itemCode = itemCode, displayName = displayName, quantity = 1,
+                container = "INVENTORY", slotIndex = emptySlot, isSellable = false
+            ))
+            successGold = profile.gold
+            message = "$displayName 1개를 받았습니다."
+        }
+        return Result(message, database.ownedItemDao().getForOwner(ownerId), successGold)
     }
 }

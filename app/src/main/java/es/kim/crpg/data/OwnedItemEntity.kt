@@ -32,5 +32,8 @@ data class OwnedItemEntity(
     val dungeonUseCount: Int = 0,
     val durability: Int = 3,
     val isIdentified: Boolean = true,
-    val appraisedGrade: String? = null
+    val appraisedGrade: String? = null,
+    val appraisedAttackPower: Int? = null,
+    val appraisedEffectChance: Int? = null,
+    val isSellable: Boolean = true
 )

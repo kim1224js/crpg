@@ -1,0 +1,23 @@
+[계정 데이터]
+login_profile: 닉네임, 자동 로그인, 골드, 생존 일수, 현재 캐릭터 최고 도달 층, 프롤로그·저택 진행, 등급별 떠돌이 상인 최초 무료 수령 비트마스크.
+owned_item의 isSellable은 무료 지급품처럼 판매가 금지된 개별 아이템을 구분한다.
+nickname_account: 닉네임 계정 식별.
+owned_item: 소유자, 아이템 코드, 수량, 보관 위치, 슬롯, 장착·내구·감정 상태와 개별 감정 공격력.
+deceased_character: 세대, 사망자 이름, 생전 최고 도달 층, 생존 턴, 사망 시각. 저택 묘비 기록에 사용한다.
+
+[마스터 데이터]
+item_definition, monster_definition, monster_drop, monster_floor_spawn,
+appraisal_rule, game_config, dungeon_interactable_definition.
+monster_floor_spawn의 floor·spawnOrder·monsterCode는 층별 구성에 사용한다.
+column·row는 무작위 좌표 생성 실패 시에만 사용하는 예비 좌표다.
+
+[원정 자동 저장]
+dungeon_run은 playerId별 JSON 스냅샷 하나를 저장한다.
+층·턴·HP·좌표·장비·인벤토리·몬스터·장애물·전리품·화염 지대·회복 시설·
+상태이상과 주요 유물 진행값을 포함한다.
+플레이어와 몬스터 행동이 끝난 안정 시점마다 덮어쓴다.
+귀환, 정상 종료, 사망 시 삭제한다.
+
+[주의]
+마스터 수치를 코드에 다시 작성하지 말고 DAO를 통해 DB 값을 사용한다.
+스키마 변경 시 Room 버전과 순차 Migration, exportSchema 결과를 함께 갱신한다.

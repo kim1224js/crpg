@@ -3,7 +3,7 @@ package es.kim.crpg.ui.dungeon
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.SoundPool
-import es.kim.crpg.game.GameAudioSettings
+import es.kim.crpg.core.audio.GameAudioSettings
 
 internal class DungeonSoundPlayer(private val appContext: Context) {
     private data class SoundSet(val attack: Int, val hit: Int, val death: Int)
@@ -34,11 +34,25 @@ internal class DungeonSoundPlayer(private val appContext: Context) {
         death = load("audio/monsters/${name}_death.wav")
     )
 
+    private val spiderSounds = set("spider")
+    private val banditSounds = set("bandit")
+    private val wildDogSounds = set("wild_dog")
+    private val slimeSounds = set("slime")
     private val sounds = mapOf(
-        "spider" to set("spider"),
-        "bandit" to set("bandit"),
-        "wild_dog" to set("wild_dog"),
-        "slime" to set("slime")
+        "spider" to spiderSounds,
+        "bandit" to banditSounds,
+        "wild_dog" to wildDogSounds,
+        "slime" to slimeSounds,
+        "plague_rat" to wildDogSounds,
+        "drowned_dead" to banditSounds,
+        "spore_body" to slimeSounds,
+        "hook_jailer" to banditSounds,
+        "plague_bell_keeper" to banditSounds,
+        "ash_arbalist" to banditSounds,
+        "cinder_gargoyle" to wildDogSounds,
+        "ember_deacon" to banditSounds,
+        "molten_bombardier" to slimeSounds,
+        "furnace_saint" to banditSounds
     )
     private val weaponAttacks = mapOf(
         "crude_sword" to load("audio/weapons/sword_swing.wav"),
@@ -52,12 +66,18 @@ internal class DungeonSoundPlayer(private val appContext: Context) {
         "crude_bow" to load("audio/combat/monster_hit_light_01.ogg"),
         "crude_gun" to load("audio/combat/monster_hit_heavy_01.ogg")
     )
+    private val chestLatch = load("audio/combat/armor_hit_heavy_01.ogg")
+    private val chestOpen = load("audio/village/wooden_door_open.wav")
+    private val chestReveal = load("audio/combat/weapon_hit_metal_light_02.ogg")
 
     fun playAttack(monsterCode: String?) = play(sounds[monsterCode]?.attack)
     fun playHit(monsterCode: String?) = play(sounds[monsterCode]?.hit)
     fun playDeath(monsterCode: String?) = play(sounds[monsterCode]?.death)
     fun playWeaponAttack(weaponCode: String?) = play(weaponAttacks[weaponCode])
     fun playWeaponImpact(weaponCode: String?) = play(weaponImpacts[weaponCode], 0.72f)
+    fun playChestLatch() = play(chestLatch, 0.68f)
+    fun playChestOpen() = play(chestOpen, 0.42f)
+    fun playChestReveal() = play(chestReveal, 0.56f)
 
     private fun play(soundId: Int?, volume: Float = 0.9f) {
         if (GameAudioSettings.effectsEnabled && soundId != null && soundId != 0 && soundId in loadedSounds) {

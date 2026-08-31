@@ -31,8 +31,17 @@ interface OwnedItemDao {
     @Query("UPDATE owned_item SET isEquipped = 0 WHERE ownerId = :ownerId")
     fun clearEquipped(ownerId: Long)
 
+    @Query("UPDATE owned_item SET isEquipped = 0 WHERE ownerId = :ownerId AND itemCode IN (SELECT code FROM item_definition WHERE category IN (:categories))")
+    fun clearEquippedCategories(ownerId: Long, categories: List<String>)
+
     @Query("UPDATE owned_item SET isEquipped = 1 WHERE id = :id")
     fun setEquipped(id: Long)
+
+    @Query("UPDATE owned_item SET isIdentified = 1, appraisedGrade = :grade, displayName = :displayName, appraisedAttackPower = :attackPower, appraisedEffectChance = NULL, durability = :durability WHERE id = :id")
+    fun markIdentified(id: Long, grade: String, displayName: String, attackPower: Int?, durability: Int)
+
+    @Query("UPDATE owned_item SET dungeonUseCount = :useCount WHERE id = :id")
+    fun updateDungeonUseCount(id: Long, useCount: Int)
 
     @Query("DELETE FROM owned_item WHERE id = :id")
     fun deleteById(id: Long)

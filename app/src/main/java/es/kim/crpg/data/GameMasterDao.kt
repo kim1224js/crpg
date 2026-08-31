@@ -15,6 +15,18 @@ interface GameMasterDao {
     @Query("SELECT * FROM monster_definition ORDER BY sortOrder")
     fun getMonsters(): List<MonsterDefinitionEntity>
 
+    @Query("SELECT * FROM monster_drop ORDER BY monsterCode, itemCode")
+    fun getMonsterDrops(): List<MonsterDropEntity>
+
+    @Query("SELECT * FROM monster_floor_spawn ORDER BY floor, spawnOrder")
+    fun getMonsterFloorSpawns(): List<MonsterFloorSpawnEntity>
+
+    @Query("SELECT * FROM dungeon_interactable_definition ORDER BY code")
+    fun getDungeonInteractableDefinitions(): List<DungeonInteractableDefinitionEntity>
+
+    @Query("SELECT * FROM dungeon_interactable_spawn ORDER BY floor, spawnOrder")
+    fun getDungeonInteractableSpawns(): List<DungeonInteractableSpawnEntity>
+
     @Query("SELECT * FROM appraisal_rule ORDER BY sortOrder")
     fun getAppraisalRules(): List<AppraisalRuleEntity>
 

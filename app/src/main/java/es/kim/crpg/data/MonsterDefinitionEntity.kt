@@ -16,5 +16,6 @@ data class MonsterDefinitionEntity(
     val goldDrop: Int,
     val goldDropRate: Double,
     val spritePath: String,
+    val sensitivity: Int,
     val sortOrder: Int
 )
