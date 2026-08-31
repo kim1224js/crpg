@@ -14,6 +14,7 @@ local.properties
 
 # Android Studio local state
 .idea/
+.run/
 
 # Signing keys and signing configuration
 *.jks
@@ -22,6 +23,8 @@ local.properties
 *.pfx
 keystore.properties
 signing.properties
+*.mobileprovision
+*.der
 
 # Secrets and environment overrides
 .env
@@ -32,6 +35,11 @@ secrets.properties
 *.secrets
 google-services.json
 GoogleService-Info.plist
+service-account*.json
+service_account*.json
+credentials*.json
+firebase-adminsdk*.json
+.firebase/
 
 # Private keys and certificates
 *.pem
@@ -61,6 +69,9 @@ hs_err_pid*
 *.aab
 *.apks
 *.mapping
+app/release/
+release/
+outputs/
 
 # Temporary and operating-system files
 *.tmp
@@ -71,4 +82,3 @@ hs_err_pid*
 .DS_Store
 Thumbs.db
 desktop.ini
-local.properties
