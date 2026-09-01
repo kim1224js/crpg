@@ -599,8 +599,12 @@ class DungeonDemoView(
             return
         }
         monsters.firstOrNull { it.alive && it.column == column && it.row == row }?.let { attackMonster(it); return }
+        val combatActive = monsters.any { it.alive && it.hp > 0 && it.alerted }
         when {
             obstacles.contains(column to row) -> message = "장애물 때문에 이동할 수 없습니다"
+            healingObjects.any { column to row in occupiedCells(it) } || treasureChests.any { it.column == column && it.row == row } ->
+                message = "해당 구조물 바로 앞 칸으로 이동해야 합니다"
+            !combatActive && !occupied(column, row) -> startExplorationAutoWalk(column, row)
             isAdjacent(column, row) && !occupied(column, row) -> {
                 startPlayerMovement(column, row, combatDuration(520L))
                 movedTilesSinceAttack++
@@ -612,9 +616,54 @@ class DungeonDemoView(
                     postDelayed({ beginMonsterTurns(1) }, combatDuration(520L))
                 }
             }
-            else -> message = "파란색 인접 타일만 이동할 수 있습니다"
+            else -> message = "전투 중에는 파란색 인접 타일만 이동할 수 있습니다"
         }
         invalidate()
+    }
+
+    private fun startExplorationAutoWalk(column: Int, row: Int) {
+        if (autoWalking) return
+        val goals = setOf(column to row)
+        val path = findPathToGoals(goals)
+        if (path == null) {
+            message = "이동할 수 있는 경로가 없습니다"
+            return
+        }
+        if (path.isEmpty()) {
+            message = "현재 위치입니다"
+            return
+        }
+        autoWalking = true
+        message = "선택한 위치로 이동 중"
+        continueExplorationAutoWalk(goals)
+    }
+
+    private fun continueExplorationAutoWalk(goals: Set<Pair<Int, Int>>) {
+        if (monsters.any { it.alive && it.hp > 0 && it.alerted }) {
+            autoWalking = false
+            pendingAutoWalkContinuation = null
+            phase = Phase.PLAYER
+            message = "몬스터가 반응해 자동 이동을 멈췄습니다"
+            invalidate()
+            return
+        }
+        val path = findPathToGoals(goals)
+        if (path == null || path.isEmpty()) {
+            autoWalking = false
+            phase = Phase.PLAYER
+            message = if (path == null) "이동 경로가 막혔습니다" else "목적지에 도착했습니다"
+            invalidate()
+            return
+        }
+        val next = path.first()
+        startPlayerMovement(next.first, next.second, combatDuration(420L))
+        movedTilesSinceAttack++
+        playAction(player, 1, 420L)
+        focusCamera(player.column, player.row)
+        phase = Phase.MONSTERS
+        pendingAutoWalkContinuation = { continueExplorationAutoWalk(goals) }
+        invalidate()
+        postDelayed({ beginMonsterTurns(1) }, combatDuration(420L))
     }
 
     private fun waitPlayerTurn() {
@@ -2245,7 +2294,7 @@ class DungeonDemoView(
     }
 
     private fun drawDepthSortedScene(canvas: Canvas, area: RectF) {
-        val units = monsters.filter { it.alive } + listOfNotNull(player.takeIf { playerMoveAnimation == null })
+        val units = monsters.filter { it.alive }
         val firstRow = floor(cameraRow).toInt() - 1
         val lastRow = min(rows - 1, (cameraRow + visibleRows).toInt() + 1)
         for (row in firstRow..lastRow) {
@@ -2256,7 +2305,7 @@ class DungeonDemoView(
                 .toList().sortedBy { it.first.first }
                 .forEach { (cell, kind) -> drawRaisedObstacle(canvas, area, cell.first, cell.second, kind) }
         }
-        if (playerMoveAnimation != null) drawUnit(canvas, area, player)
+        drawUnit(canvas, area, player)
     }
 
     private fun drawRaisedObstacle(canvas: Canvas, area: RectF, column: Int, row: Int, kind: ObstacleKind) {
@@ -2421,6 +2470,7 @@ class DungeonDemoView(
     }
 
     private fun drawUnit(canvas: Canvas, area: RectF, unit: UnitSprite) {
+        paint.alpha = 255
         val isMimic = unit.definition?.code?.startsWith("mimic_") == true
         val frameWidth = unit.sheet.width / 4; val frameHeight = if (isMimic) unit.sheet.height else unit.sheet.height / 4
         val now = System.currentTimeMillis()
@@ -2428,6 +2478,7 @@ class DungeonDemoView(
         val row = if (actionPlaying) unit.actionRow else 0
         val rawFrame = when {
             unit.actionUntil == Long.MAX_VALUE -> 3
+            unit === player && row == 1 && actionPlaying -> playerWalkFrame(unit, now)
             actionPlaying -> (((now - unit.actionStartedAt).coerceAtLeast(0L) / 170L).toInt()).coerceIn(0, 3)
             else -> animationFrame
         }
@@ -2438,12 +2489,13 @@ class DungeonDemoView(
         val tw = area.width() / visibleColumns
         val centerX = target.centerX(); val bottom = target.bottom; val targetHeight = target.height()
         if (unit === player && row == 1 && actionPlaying) {
-            val stepPhase = (now - unit.actionStartedAt).coerceAtLeast(0L) / 85f
-            val bob = -kotlin.math.abs(sin(stepPhase)) * dp(3f)
-            val sway = sin(stepPhase) * 1.8f
+            val duration = (unit.actionUntil - unit.actionStartedAt).coerceAtLeast(1L)
+            val progress = ((now - unit.actionStartedAt).toFloat() / duration).coerceIn(0f, 1f)
+            val stepPhase = progress * (Math.PI * 2.0).toFloat()
+            val bob = -kotlin.math.abs(sin(stepPhase)) * dp(2f)
+            val sway = sin(stepPhase) * dp(1.2f)
             canvas.save()
-            canvas.translate(0f, bob)
-            canvas.rotate(sway, target.centerX(), target.bottom)
+            canvas.translate(sway, bob - dp(1f))
             canvas.drawBitmap(unit.sheet, source, target, paint)
             canvas.restore()
         } else {
@@ -2487,6 +2539,12 @@ class DungeonDemoView(
             !helmetEquipped && row == 3 -> intArrayOf(0, 1, 1, 1)[rawFrame]
             else -> rawFrame
         }
+    }
+
+    private fun playerWalkFrame(unit: UnitSprite, now: Long): Int {
+        val duration = (unit.actionUntil - unit.actionStartedAt).coerceAtLeast(1L)
+        val elapsed = (now - unit.actionStartedAt).coerceIn(0L, duration)
+        return ((elapsed * 4L) / duration).toInt().coerceIn(0, 3)
     }
 
     private fun startPlayerMovement(column: Int, row: Int, duration: Long) {

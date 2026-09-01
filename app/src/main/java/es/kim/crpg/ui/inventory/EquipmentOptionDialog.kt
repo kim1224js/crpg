@@ -43,6 +43,16 @@ class EquipmentOptionDialog(private val context: Context) {
             gravity = Gravity.CENTER_VERTICAL
         }
         header.addView(label(item.displayName, Color.WHITE, 24f, true), LinearLayout.LayoutParams(0, dp(42), 1f))
+        if (salePrice != null && onSell != null) {
+            header.addView(Button(context).apply {
+                text = "판매 ${salePrice}G"
+                setTextColor(Color.WHITE); textSize = 13f; typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER; minWidth = 0; minHeight = 0
+                setPadding(dp(8), 0, dp(8), 0); stateListAnimator = null
+                background = panel(0xFF5B2418.toInt(), gold, 6f, 2)
+                setOnClickListener { dialog.dismiss(); onSell() }
+            }, LinearLayout.LayoutParams(dp(94), dp(32)).apply { marginStart = dp(8) })
+        }
         header.addView(Button(context).apply {
             text = "×"
             contentDescription = "닫기"
@@ -87,15 +97,6 @@ class EquipmentOptionDialog(private val context: Context) {
             panel.addView(label(effect, 0xFFFFD77A.toInt(), 15f).apply {
                 setPadding(dp(10), dp(9), dp(10), dp(9)); background = panel(0xE63A2113.toInt(), goldDark, 8f, 1)
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
-        }
-        if (salePrice != null && onSell != null) {
-            panel.addView(Button(context).apply {
-                text = "판매  ${salePrice}G"
-                setTextColor(Color.WHITE); textSize = 15f; typeface = Typeface.DEFAULT_BOLD
-                minHeight = 0; stateListAnimator = null
-                background = panel(0xFF5B2418.toInt(), gold, 7f, 2)
-                setOnClickListener { dialog.dismiss(); onSell() }
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)).apply { topMargin = dp(14) })
         }
         val scroll = context.gameScrollView(panel)
         dialog.setContentView(scroll)
