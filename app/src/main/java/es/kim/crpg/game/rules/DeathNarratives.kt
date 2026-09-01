@@ -16,6 +16,12 @@ object DeathNarratives {
         "ember_deacon" -> "잿불 부제의 불경한 기도가 내장을 태웠고, 남은 재는 성당의 차가운 바람에 흩어졌다."
         "molten_bombardier" -> "용융탄이 몸 한가운데서 터져 뼈와 쇳조각이 불타는 파편처럼 사방에 박혔다."
         "furnace_saint" -> "타락한 성자의 포화가 영혼까지 달구었고, 마지막 비명은 용광로의 굉음 속에 묻혔다."
+        "rift_hound", "void_hound" -> "공허 사냥개의 턱이 뼈를 으스러뜨렸고, 남은 살점은 보랏빛 균열 속으로 끌려갔다."
+        "infernal_lancer", "abyss_lancer" -> "악마의 창이 몸을 관통해 검은 제단에 못 박았고, 피는 심연 아래로 끝없이 흘러내렸다."
+        "void_oracle", "starved_oracle" -> "신탁의 화살이 눈과 심장을 차례로 꿰뚫었고, 시체는 이름 없는 예언의 제물이 되었다."
+        "hellshot_apostle", "blackpowder_apostle" -> "흑화약 탄환이 몸속에서 폭발해 뼈와 갑옷을 검붉은 파편으로 흩어 놓았다."
+        "eclipse_archon_20", "eclipse_archon_25" -> "검은 태양의 칼날이 영혼까지 양단했고, 그림자만 성소 바닥에 낙인처럼 남았다."
+        "abyss_maw_20", "abyss_maw_25" -> "심연의 아귀가 몸을 통째로 삼킨 뒤, 씹히는 소리만 끝없는 공허에 오래 울렸다."
         else -> "${name ?: "정체불명의 괴물"}에게 처참히 쓰러져, 탑의 어둠 속에서 이름마저 잊혔다."
     }
 }

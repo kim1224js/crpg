@@ -1,6 +1,5 @@
 package es.kim.crpg
 
-import android.content.res.ColorStateList
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Typeface
@@ -12,7 +11,6 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
-import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.GridLayout
@@ -43,11 +41,24 @@ import es.kim.crpg.game.rules.DeathNarratives
 import es.kim.crpg.ui.common.AntiqueGameDialog
 import es.kim.crpg.ui.common.GameUiTheme
 import es.kim.crpg.ui.common.gameScrollView
+import es.kim.crpg.ui.common.antiqueButton
+import es.kim.crpg.ui.common.antiquePanel
+import es.kim.crpg.ui.common.dp
+import es.kim.crpg.ui.common.itemGridHeight
+import es.kim.crpg.ui.common.itemImage
+import es.kim.crpg.ui.common.itemQuantityLayoutParams
+import es.kim.crpg.ui.common.matchParentParams
+import es.kim.crpg.ui.common.quantityBadge
+import es.kim.crpg.ui.common.sectionTitle
 import es.kim.crpg.ui.dungeon.DungeonDemoView
 import es.kim.crpg.ui.inventory.EquipmentOptionDialog
 import es.kim.crpg.ui.inventory.HexagonSlotView
 import es.kim.crpg.ui.inventory.ItemGridView
 import es.kim.crpg.ui.settings.GameSettingsController
+import es.kim.crpg.ui.login.LoginScreen
+import es.kim.crpg.ui.village.VillageMapOverlay
+import es.kim.crpg.ui.facility.FacilityUiController
+import es.kim.crpg.ui.story.TimedStoryOverlay
 import java.util.concurrent.Executors
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -57,19 +68,15 @@ import kotlin.math.min
 import kotlin.random.Random
 
 class MainActivity : GameActivity() {
-    private lateinit var loginOverlay: FrameLayout
-    private lateinit var nameInput: EditText
-    private lateinit var loginButton: Button
-    private lateinit var autoLoginCheckBox: CheckBox
-    private lateinit var deathNoticeText: TextView
-    private lateinit var villageInteractionOverlay: FrameLayout
-    private lateinit var generalStoreHotspot: View
-    private lateinit var blacksmithHotspot: View
-    private lateinit var appraisalHotspot: View
-    private lateinit var innWarehouseHotspot: View
-    private lateinit var manorHotspot: View
-    private lateinit var dungeonEntranceHotspot: View
-    private lateinit var travelingMerchantHotspot: FrameLayout
+    private lateinit var loginScreen: LoginScreen
+    private val loginOverlay get() = loginScreen
+    private val nameInput get() = loginScreen.nameInput
+    private val autoLoginCheckBox get() = loginScreen.autoLoginCheckBox
+    private val deathNoticeText get() = loginScreen.deathNoticeText
+    private lateinit var villageMapOverlay: VillageMapOverlay
+    private lateinit var facilityUiController: FacilityUiController
+    private val villageInteractionOverlay get() = villageMapOverlay
+    private val travelingMerchantHotspot get() = villageMapOverlay.travelingMerchant
     private var shopOverlay: FrameLayout? = null
     private var travelingMerchantList: LinearLayout? = null
     private lateinit var settingsController: GameSettingsController
@@ -86,6 +93,7 @@ class MainActivity : GameActivity() {
     private var playerGold = 10
     private var survivalDay = 1
     private var highestFloor = 1
+    private var unlockedDungeonStartFloor = 1
     private var introSeen = false
     private var awaitingHeirCreation = false
     private var hasEnteredVillage = false
@@ -100,12 +108,11 @@ class MainActivity : GameActivity() {
     private var gameConfigs: Map<String, Int> = emptyMap()
 
     companion object {
-        private const val DESIGN_WIDTH = 1280f
-        private const val DESIGN_HEIGHT = 720f
         private const val COLOR_LEATHER = GameUiTheme.LEATHER
         private const val COLOR_LEATHER_DARK = GameUiTheme.LEATHER_DARK
         private const val COLOR_GOLD = GameUiTheme.GOLD
         private const val COLOR_GOLD_DARK = GameUiTheme.GOLD_DARK
+        private val EQUIPMENT_CATEGORIES = setOf("WEAPON", "HELMET", "ARMOR", "BOOTS", "AUXILIARY", "ACCESSORY")
 
         init {
             System.loadLibrary("crpg")
@@ -164,114 +171,15 @@ class MainActivity : GameActivity() {
     }
 
     private fun createLoginOverlay() {
-        loginOverlay = FrameLayout(this).apply {
-            setBackgroundColor(Color.BLACK)
-            isClickable = true
-            isFocusable = true
-            isFocusableInTouchMode = true
-        }
-
-        val background = ImageView(this).apply {
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            val bitmap = assets.open("ui/login/login_screen.png").use(BitmapFactory::decodeStream)
-            setImageBitmap(bitmap)
-        }
-        loginOverlay.addView(
-            background,
-            FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-        )
-
-        nameInput = EditText(this).apply {
-            hint = "이름"
-            setTextColor(Color.WHITE)
-            setHintTextColor(0xCCFFFFFF.toInt())
-            textSize = 22f
-            gravity = Gravity.CENTER
-            setSingleLine(true)
-            setBackgroundColor(Color.TRANSPARENT)
-            setPadding(0, 0, 0, 0)
-        }
-        loginOverlay.addView(nameInput)
-
-        loginButton = Button(this).apply {
-            text = "로그인"
-            setTextColor(Color.WHITE)
-            textSize = 24f
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-            setBackgroundColor(Color.TRANSPARENT)
-            stateListAnimator = null
-            setPadding(0, 0, 0, 0)
-            setOnClickListener { saveLoginAndEnterVillage() }
-        }
-        loginOverlay.addView(loginButton)
-
-        autoLoginCheckBox = CheckBox(this).apply {
-            text = "자동 로그인"
-            setTextColor(Color.WHITE)
-            textSize = 15f
-            buttonTintList = ColorStateList.valueOf(COLOR_GOLD)
-            gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 0)
-        }
-        loginOverlay.addView(autoLoginCheckBox)
-
-        deathNoticeText = TextView(this).apply {
-            visibility = View.GONE
-            setTextColor(0xFFFFB7A8.toInt())
-            textSize = 17f
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-        }
-        loginOverlay.addView(deathNoticeText)
-
-        loginOverlay.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            positionLoginControls()
-        }
-
+        loginScreen = LoginScreen(this, ::saveLoginAndEnterVillage)
         addContentView(
-            loginOverlay,
+            loginScreen,
             ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
         )
         setVillageHotspotsEnabled(false)
-    }
-
-    private fun positionLoginControls() {
-        val scale = min(loginOverlay.width / DESIGN_WIDTH, loginOverlay.height / DESIGN_HEIGHT)
-        val imageWidth = DESIGN_WIDTH * scale
-        val imageHeight = DESIGN_HEIGHT * scale
-        val offsetX = (loginOverlay.width - imageWidth) / 2f
-        val offsetY = (loginOverlay.height - imageHeight) / 2f
-
-        placeView(autoLoginCheckBox, offsetX, offsetY, scale, 505f, 474f, 270f, 36f)
-        placeView(deathNoticeText, offsetX, offsetY, scale, 300f, 392f, 680f, 78f)
-        placeView(nameInput, offsetX, offsetY, scale, 400f, 515f, 480f, 75f)
-        placeView(loginButton, offsetX, offsetY, scale, 510f, 625f, 260f, 60f)
-    }
-
-    private fun placeView(
-        view: View,
-        offsetX: Float,
-        offsetY: Float,
-        scale: Float,
-        x: Float,
-        y: Float,
-        width: Float,
-        height: Float
-    ) {
-        view.layoutParams = FrameLayout.LayoutParams(
-            (width * scale).toInt(),
-            (height * scale).toInt()
-        ).apply {
-            leftMargin = (offsetX + x * scale).toInt()
-            topMargin = (offsetY + y * scale).toInt()
-        }
     }
 
     private fun saveLoginAndEnterVillage() {
@@ -319,6 +227,7 @@ class MainActivity : GameActivity() {
                 survivalDay = savedProfile?.survivalDay ?: 1,
                 lastManorSearchDay = savedProfile?.lastManorSearchDay ?: 0,
                 highestFloor = savedProfile?.highestFloor ?: 1,
+                unlockedDungeonStartFloor = savedProfile?.unlockedDungeonStartFloor ?: 1,
                 pendingEstateLossCount = savedProfile?.pendingEstateLossCount ?: 0,
                 pendingEstateKeptNames = savedProfile?.pendingEstateKeptNames,
                 lastMerchantFreeDay = savedProfile?.lastMerchantFreeDay ?: 0,
@@ -330,6 +239,7 @@ class MainActivity : GameActivity() {
             playerGold = profile.gold
             survivalDay = profile.survivalDay
             highestFloor = profile.highestFloor
+            unlockedDungeonStartFloor = profile.unlockedDungeonStartFloor
             introSeen = profile.introSeen
 
             if (isNewProfile) {
@@ -360,6 +270,7 @@ class MainActivity : GameActivity() {
             playerGold = profile.gold
             survivalDay = profile.survivalDay
             highestFloor = profile.highestFloor
+            unlockedDungeonStartFloor = profile.unlockedDungeonStartFloor
             introSeen = profile.introSeen
             ownedItems = gameDatabase.ownedItemDao().getForOwner(profile.id)
             dungeonRunPayload = gameDatabase.dungeonRunDao().get(profile.id)?.payloadJson
@@ -409,6 +320,7 @@ class MainActivity : GameActivity() {
         deathNoticeText.visibility = View.GONE
         setVillageHotspotsEnabled(true)
         updateTravelingMerchantVisibility()
+        updateRedMoonVisibility()
         hideSystemUi()
         if (!dungeonRunPayload.isNullOrBlank()) {
             villageInteractionOverlay.postDelayed({ showSavedDungeonRunDialog() }, 350L)
@@ -483,33 +395,6 @@ class MainActivity : GameActivity() {
     }
 
     private fun showOpeningPrologue(onFinished: () -> Unit) {
-        val overlay = FrameLayout(this).apply {
-            setBackgroundColor(Color.BLACK)
-            isClickable = true
-            isFocusable = true
-        }
-        overlay.addView(ImageView(this).apply {
-            scaleType = ImageView.ScaleType.CENTER_CROP
-            alpha = .24f
-            setImageBitmap(assets.open("ui/login/login_screen.png").use(BitmapFactory::decodeStream))
-        }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-
-        val storyPanel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(42), dp(28), dp(42), dp(28))
-            background = antiquePanel(0xE8120D0A.toInt(), COLOR_GOLD_DARK, 12f, 1)
-        }
-        storyPanel.addView(TextView(this).apply {
-            text = "핏빛 문 아래"
-            setTextColor(COLOR_GOLD)
-            textSize = 29f
-            typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
-            gravity = Gravity.CENTER
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply {
-            bottomMargin = dp(14)
-        })
-
         val lines = listOf(
             "모든 것은 부모님과 함께 살던 낡은 집에서 시작되었다.",
             "어머니는 원인을 알 수 없는 병에 걸려 날이 갈수록 쇠약해졌다.",
@@ -519,66 +404,13 @@ class MainActivity : GameActivity() {
             "간신히 문을 닫은 당신은 부모님에게 일어난 일의 답이 저 아래에 있음을 깨달았다.",
             "이제 장비를 마련하고 지하로 내려가 진실을 마주하자."
         )
-        val lineViews = lines.mapIndexed { index, line ->
-            TextView(this).apply {
-                text = line
-                setTextColor(if (index == lines.lastIndex) 0xFFFFD58A.toInt() else Color.WHITE)
-                textSize = if (index == lines.lastIndex) 17f else 16f
-                typeface = if (index == lines.lastIndex) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-                gravity = Gravity.CENTER
-                alpha = 0f
-                setLineSpacing(dp(3).toFloat(), 1f)
-                storyPanel.addView(this, LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = dp(if (index == lines.lastIndex) 0 else 12) })
-            }
-        }
-        val touchPrompt = TextView(this).apply {
-            text = "화면을 터치하여 시작"
-            setTextColor(COLOR_GOLD)
-            textSize = 15f
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-            alpha = 0f
-            letterSpacing = .08f
-        }
-        storyPanel.addView(touchPrompt, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(38)
-        ).apply { topMargin = dp(18) })
-        val storyScroll = gameScrollView(storyPanel, showScrollbar = false)
-        overlay.addView(storyScroll, FrameLayout.LayoutParams(
-            minOf(dp(900), resources.displayMetrics.widthPixels - dp(70)),
-            resources.displayMetrics.heightPixels - dp(40),
-            Gravity.CENTER
+        TimedStoryOverlay.show(this, TimedStoryOverlay.Config(
+            title = "핏빛 문 아래",
+            lines = lines,
+            prompt = "화면을 터치하여 시작",
+            style = TimedStoryOverlay.Style.PROLOGUE,
+            onFinished = onFinished
         ))
-        addContentView(overlay, ViewGroup.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
-        ))
-        overlay.bringToFront()
-
-        lineViews.forEachIndexed { index, lineView ->
-            lineView.postDelayed({
-                if (overlay.parent != null) {
-                    lineView.animate().alpha(1f).setDuration(1550L).start()
-                    storyScroll.post { storyScroll.smoothScrollTo(0, lineView.bottom) }
-                }
-            }, index * 1_000L)
-        }
-        var canStart = false
-        val promptDelay = (lines.lastIndex * 1_000L) + 1550L
-        overlay.postDelayed({
-            canStart = true
-            touchPrompt.animate().alpha(1f).setDuration(700L).start()
-        }, promptDelay)
-        overlay.setOnClickListener {
-            if (!canStart) return@setOnClickListener
-            canStart = false
-            overlay.isClickable = false
-            onFinished()
-            overlay.animate().alpha(0f).setDuration(800L).withEndAction {
-                (overlay.parent as? ViewGroup)?.removeView(overlay)
-            }.start()
-        }
     }
 
     override fun onDestroy() {
@@ -591,112 +423,32 @@ class MainActivity : GameActivity() {
     }
 
     private fun createVillageInteractionOverlay() {
-        villageInteractionOverlay = FrameLayout(this)
-        generalStoreHotspot = villageHotspotLabel("일반상점").apply {
-            contentDescription = "일반 상점"
-            setOnClickListener { openGeneralStore() }
-        }
-        blacksmithHotspot = villageHotspotLabel("대장간").apply {
-            contentDescription = "대장간"
-            setOnClickListener { openBlacksmith() }
-        }
-        appraisalHotspot = villageHotspotLabel("감정소").apply {
-            contentDescription = "감정소"
-            setOnClickListener {
+        villageMapOverlay = VillageMapOverlay(
+            context = this,
+            onGeneralStore = ::openGeneralStore,
+            onBlacksmith = ::openBlacksmith,
+            onAppraisal = {
                 openFacility("ui/village/building_appraisal_house.png", 0.68f, 0f) { showAppraisalOffice() }
-            }
-        }
-        innWarehouseHotspot = villageHotspotLabel("여관 · 창고").apply {
-            contentDescription = "여관과 창고"
-            setOnClickListener {
+            },
+            onInnWarehouse = {
                 openFacility("ui/village/building_inn_warehouse.png", 0f, 0.52f) { showInnWarehouse() }
-            }
-        }
-        manorHotspot = villageHotspotLabel("저택").apply {
-            contentDescription = "저택"
-            setOnClickListener {
+            },
+            onManor = {
                 openFacility("ui/village/building_manor_dungeon.png", 0.35f, 0f) { showManorEntrance() }
-            }
-        }
-        dungeonEntranceHotspot = villageHotspotLabel("지하 입구").apply {
-            contentDescription = "지하 입구"
-            setOnClickListener {
+            },
+            onDungeonEntrance = {
                 openFacility("ui/village/building_manor_dungeon.png", 0.51f, 0.08f) { showDungeonLoadout() }
-            }
-        }
-        travelingMerchantHotspot = FrameLayout(this).apply {
-            visibility = View.GONE
-            contentDescription = "떠돌이 뽑기상자 상인"
-            isClickable = true
-            addView(ImageView(this@MainActivity).apply {
-                scaleType = ImageView.ScaleType.FIT_CENTER
-                setImageBitmap(assets.open("ui/village/merchant/traveling_gacha_merchant.png").use(BitmapFactory::decodeStream))
-            }, matchParentParams())
-            addView(TextView(this@MainActivity).apply {
-                text = "떠돌이 상인"
-                setTextColor(0xFFFFE586.toInt()); textSize = 10f; typeface = Typeface.DEFAULT_BOLD
-                gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-                setShadowLayer(dp(3).toFloat(), 0f, dp(2).toFloat(), Color.BLACK)
-            }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(30), Gravity.TOP))
-            setOnClickListener { showTravelingMerchant() }
-        }
-        villageInteractionOverlay.addView(generalStoreHotspot)
-        villageInteractionOverlay.addView(blacksmithHotspot)
-        villageInteractionOverlay.addView(appraisalHotspot)
-        villageInteractionOverlay.addView(innWarehouseHotspot)
-        villageInteractionOverlay.addView(manorHotspot)
-        villageInteractionOverlay.addView(dungeonEntranceHotspot)
-        villageInteractionOverlay.addView(travelingMerchantHotspot)
-        villageInteractionOverlay.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            val width = villageInteractionOverlay.width
-            val height = villageInteractionOverlay.height
-            generalStoreHotspot.layoutParams = FrameLayout.LayoutParams(
-                (width * 0.32f).toInt(),
-                (height * 0.48f).toInt()
-            ).apply {
-                leftMargin = (width * 0.68f).toInt()
-                topMargin = (height * 0.52f).toInt()
-            }
-            blacksmithHotspot.layoutParams = FrameLayout.LayoutParams(
-                (width * 0.32f).toInt(),
-                (height * 0.48f).toInt()
-            ).apply {
-                leftMargin = 0
-                topMargin = 0
-            }
-            appraisalHotspot.layoutParams = FrameLayout.LayoutParams(
-                (width * 0.32f).toInt(), (height * 0.48f).toInt()
-            ).apply { leftMargin = (width * 0.68f).toInt(); topMargin = 0 }
-            innWarehouseHotspot.layoutParams = FrameLayout.LayoutParams(
-                (width * 0.32f).toInt(), (height * 0.48f).toInt()
-            ).apply { leftMargin = 0; topMargin = (height * 0.52f).toInt() }
-            manorHotspot.layoutParams = FrameLayout.LayoutParams(
-                (width * 0.15f).toInt(), (height * 0.22f).toInt()
-            ).apply { leftMargin = (width * 0.51f).toInt(); topMargin = (height * 0.08f).toInt() }
-            dungeonEntranceHotspot.layoutParams = FrameLayout.LayoutParams(
-                (width * 0.16f).toInt(), (height * 0.22f).toInt()
-            ).apply { leftMargin = (width * 0.35f).toInt(); topMargin = 0 }
-            travelingMerchantHotspot.layoutParams = FrameLayout.LayoutParams(
-                (width * 0.06f).toInt(), (height * 0.153f).toInt()
-            ).apply { leftMargin = (width * 0.47f).toInt(); topMargin = (height * 0.474f).toInt() }
-        }
+            },
+            onTravelingMerchant = ::showTravelingMerchant
+        )
         addContentView(
-            villageInteractionOverlay,
+            villageMapOverlay,
             ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
         )
-    }
-
-    private fun villageHotspotLabel(label: String): TextView = TextView(this).apply {
-        text = label
-        setTextColor(Color.WHITE)
-        textSize = 15f
-        typeface = Typeface.DEFAULT_BOLD
-        gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-        setPadding(0, dp(5), 0, 0)
-        setBackgroundColor(Color.TRANSPARENT)
+        facilityUiController = FacilityUiController(this, villageMapOverlay)
     }
 
     private fun openGeneralStore() {
@@ -708,10 +460,19 @@ class MainActivity : GameActivity() {
     }
 
     private fun updateTravelingMerchantVisibility() {
-        if (!::travelingMerchantHotspot.isInitialized) return
+        if (!::villageMapOverlay.isInitialized) return
         val interval = gameInt("traveling_merchant_interval_days", 5).coerceAtLeast(1)
         travelingMerchantHotspot.visibility = if (hasEnteredVillage && survivalDay > 0 && survivalDay % interval == 0) View.VISIBLE else View.GONE
         travelingMerchantHotspot.isEnabled = travelingMerchantHotspot.visibility == View.VISIBLE && shopOverlay == null
+    }
+
+    private fun isRedMoonActive(): Boolean {
+        val interval = gameInt("red_moon_interval_days", 10).coerceAtLeast(1)
+        return survivalDay > 0 && survivalDay % interval == 0
+    }
+
+    private fun updateRedMoonVisibility() {
+        if (::villageMapOverlay.isInitialized) villageMapOverlay.setRedMoonActive(hasEnteredVillage && isRedMoonActive())
     }
 
     private fun showTravelingMerchant() {
@@ -724,7 +485,7 @@ class MainActivity : GameActivity() {
     }
 
     private fun showTravelingMerchantContent(claimMask: Int) {
-        val content = createFacilityContent("떠돌이 상자 상인", "ui/village/village_map.png")
+        val content = createFacilityContent("떠돌이 상자 상인", "ui/village/village_map.png", scrollContent = false)
         shopOverlay?.contentDescription = "traveling_merchant"
         content.addView(TextView(this).apply {
             text = "생존 ${survivalDay}일차 · 5일마다 마을 중앙을 찾는 수상한 행상인입니다."
@@ -734,7 +495,7 @@ class MainActivity : GameActivity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        content.addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(430)))
+        content.addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         body.addView(ImageView(this).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
             setImageBitmap(assets.open("ui/village/merchant/traveling_gacha_merchant.png").use(BitmapFactory::decodeStream))
@@ -794,64 +555,16 @@ class MainActivity : GameActivity() {
         if (shopOverlay != null) return
         villageSoundPlayer?.playDoorOpen()
         setVillageHotspotsEnabled(false)
-
-        val zoomImage = ImageView(this).apply {
-            scaleType = ImageView.ScaleType.CENTER_CROP
-            setImageBitmap(
-                assets.open(assetPath).use(BitmapFactory::decodeStream)
-            )
-            pivotX = 0f
-            pivotY = 0f
-            scaleX = 0.28f
-            scaleY = 0.48f
-            x = villageInteractionOverlay.width * originX
-            y = villageInteractionOverlay.height * originY
-            alpha = 0.35f
+        facilityUiController.playEntrance(assetPath, originX, originY, .28f, .48f) {
+            showShopInterface(isBlacksmith)
         }
-        villageInteractionOverlay.addView(
-            zoomImage,
-            FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-        )
-
-        zoomImage.animate()
-            .x(0f)
-            .y(0f)
-            .scaleX(1f)
-            .scaleY(1f)
-            .alpha(1f)
-            .setDuration(650L)
-            .withEndAction {
-                villageInteractionOverlay.removeView(zoomImage)
-                showShopInterface(isBlacksmith)
-            }
-            .start()
     }
 
     private fun openFacility(assetPath: String, originX: Float, originY: Float, onOpened: () -> Unit) {
         if (shopOverlay != null) return
         villageSoundPlayer?.playDoorOpen()
         setVillageHotspotsEnabled(false)
-        val zoomImage = ImageView(this).apply {
-            scaleType = ImageView.ScaleType.CENTER_CROP
-            setImageBitmap(assets.open(assetPath).use(BitmapFactory::decodeStream))
-            pivotX = 0f
-            pivotY = 0f
-            scaleX = 0.30f
-            scaleY = 0.40f
-            x = villageInteractionOverlay.width * originX
-            y = villageInteractionOverlay.height * originY
-            alpha = 0.35f
-        }
-        villageInteractionOverlay.addView(zoomImage, matchParentParams())
-        zoomImage.animate().x(0f).y(0f).scaleX(1f).scaleY(1f).alpha(1f)
-            .setDuration(650L)
-            .withEndAction {
-                villageInteractionOverlay.removeView(zoomImage)
-                onOpened()
-            }.start()
+        facilityUiController.playEntrance(assetPath, originX, originY, onOpened = onOpened)
     }
 
     private fun showShopInterface(isBlacksmith: Boolean = false) {
@@ -955,7 +668,10 @@ class MainActivity : GameActivity() {
             }
         } else {
             ItemCatalog.generalStore.forEach { item ->
-                storeList.addView(storeItemRow(item.code, item.name, item.price, item.unitsPerPurchase, item.assetPath, item.detail))
+                val generalPrice = if (item.code in setOf("gacha_normal", "gacha_high")) {
+                    item.price * gameInt("general_store_gacha_price_multiplier", 2)
+                } else item.price
+                storeList.addView(storeItemRow(item.code, item.name, generalPrice, item.unitsPerPurchase, item.assetPath, item.detail))
             }
         }
 
@@ -1108,8 +824,8 @@ class MainActivity : GameActivity() {
                             result.gold?.let { playerGold = it }
                             ensureEquippedWeapon()
                             runOnUiThread {
-                                closeShop()
                                 Toast.makeText(this, result.message, Toast.LENGTH_SHORT).show()
+                                refreshCurrentItemScreen()
                             }
                         }
                     }
@@ -1266,10 +982,9 @@ class MainActivity : GameActivity() {
             result.gold?.let { playerGold = it }
             runOnUiThread {
                 Toast.makeText(this, result.message, Toast.LENGTH_SHORT).show()
-                when (ItemCatalog.definition(itemCode)?.storeType) {
-                    "MERCHANT" -> onFinished?.invoke()
-                    else -> refreshShopInterface(ItemCatalog.definition(itemCode)?.storeType == "BLACKSMITH")
-                }
+                val storeType = ItemCatalog.definition(itemCode)?.storeType.orEmpty()
+                if ("MERCHANT" in storeType && onFinished != null) onFinished()
+                else refreshShopInterface(storeType == "BLACKSMITH")
             }
         }
     }
@@ -1281,55 +996,15 @@ class MainActivity : GameActivity() {
         showShopInterface(isBlacksmith)
     }
 
-    private fun createFacilityContent(title: String, backgroundAsset: String): LinearLayout {
+    private fun createFacilityContent(title: String, backgroundAsset: String, scrollContent: Boolean = true): LinearLayout {
         shopOverlay?.let { existing -> (existing.parent as? ViewGroup)?.removeView(existing) }
-        val overlay = FrameLayout(this)
-        shopOverlay = overlay
-        overlay.addView(ImageView(this).apply {
-            scaleType = ImageView.ScaleType.CENTER_CROP
-            setImageBitmap(assets.open(backgroundAsset).use(BitmapFactory::decodeStream))
-        }, matchParentParams())
-        overlay.addView(View(this).apply { setBackgroundColor(0xC5000000.toInt()) }, matchParentParams())
-
-        val titleBar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(24), 0, dp(18), 0)
-            background = antiquePanel(0xE6150E0B.toInt(), COLOR_GOLD_DARK, 0f, 1)
-            addView(TextView(this@MainActivity).apply {
-                text = title
-                setTextColor(Color.WHITE)
-                textSize = 26f
-                typeface = Typeface.DEFAULT_BOLD
-            }, LinearLayout.LayoutParams(0, dp(56), 1f))
-            addView(TextView(this@MainActivity).apply {
-                text = "보유 골드  $playerGold G"
-                setTextColor(COLOR_GOLD)
-                textSize = 18f
-                typeface = Typeface.DEFAULT_BOLD
-                gravity = Gravity.CENTER
-            }, LinearLayout.LayoutParams(dp(180), dp(56)))
-            addView(antiqueButton("닫기", dp(78), dp(40)).apply {
-                setOnClickListener { closeShopOverlay(overlay) }
-            })
-        }
-        overlay.addView(titleBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56), Gravity.TOP))
-
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(28), dp(20), dp(28), dp(24))
-            background = antiquePanel(COLOR_LEATHER, COLOR_GOLD_DARK, 12f, 2)
-        }
-        val contentScroll = gameScrollView(content)
-        overlay.addView(contentScroll, FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
-        ).apply { topMargin = dp(72); bottomMargin = dp(16); leftMargin = dp(24); rightMargin = dp(24) })
-        addContentView(overlay, matchParentParams())
-        return content
+        val screen = facilityUiController.createScreen(title, backgroundAsset, playerGold, scrollContent, ::closeShopOverlay)
+        shopOverlay = screen.overlay
+        return screen.content
     }
 
     private fun showAppraisalOffice() {
-        val content = createFacilityContent("감정소", "ui/village/building_appraisal_house.png")
+        val content = createFacilityContent("감정소", "ui/village/building_appraisal_house.png", scrollContent = false)
         shopOverlay?.contentDescription = "appraisal_office"
         content.addView(TextView(this).apply {
             text = "고급 이상 장비는 미확인 상태로 입수됩니다. 감정 비용은 장비 가치와 같으며, 실패해도 장비는 유지됩니다."
@@ -1338,7 +1013,7 @@ class MainActivity : GameActivity() {
             setPadding(dp(8), 0, dp(8), dp(12))
         })
         val body = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        content.addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(310)))
+        content.addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         val rates = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(14), dp(10), dp(14), dp(10))
@@ -1348,7 +1023,7 @@ class MainActivity : GameActivity() {
         appraisalRules.forEach { rule ->
             rates.addView(appraisalRateRow(ItemAppraisalRules.gradeName(rule.grade), "장비 가치", "${(rule.successRate * 100).toInt()}%"))
         }
-        body.addView(rates, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 0.46f).apply { marginEnd = dp(14) })
+        body.addView(gameScrollView(rates), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 0.46f).apply { marginEnd = dp(14) })
         val unidentifiedItems = ownedItems.filter { !it.isIdentified }
         val appraisalList = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1474,14 +1149,14 @@ class MainActivity : GameActivity() {
     }
 
     private fun showInnWarehouse() {
-        val content = createFacilityContent("여관 · 창고", "ui/village/building_inn_warehouse.png")
+        val content = createFacilityContent("여관 · 창고", "ui/village/building_inn_warehouse.png", scrollContent = false)
         shopOverlay?.contentDescription = "inn_warehouse"
         content.addView(TextView(this).apply {
             text = "아이템을 길게 눌러 원하는 칸으로 옮기세요. 인벤토리와 창고 사이로도 이동할 수 있습니다."
             setTextColor(0xFFD8C7A3.toInt()); textSize = 15f; setPadding(dp(8), 0, dp(8), dp(8))
         })
         val body = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        content.addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(360)))
+        content.addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         val inventoryItems = ownedItems.count { it.container == "INVENTORY" }
         val storageItems = ownedItems.count { it.container == "STORAGE" }
         val storageCapacity = gameInt("storage_capacity", 20)
@@ -1490,13 +1165,13 @@ class MainActivity : GameActivity() {
             orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(8), dp(12), dp(10))
             background = antiquePanel(COLOR_LEATHER_DARK, COLOR_GOLD_DARK, 10f, 1)
             addView(sectionTitle("인벤토리  $inventoryItems / ${gameInt("inventory_capacity", 25)}"))
-            addView(createTransferGrid("INVENTORY", 5, 5, gameInt("inventory_capacity", 25)), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+            addView(gameScrollView(createTransferGrid("INVENTORY", 5, 5, gameInt("inventory_capacity", 25)), fillViewport = false), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         }
         val storagePanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(8), dp(12), dp(10))
             background = antiquePanel(COLOR_LEATHER_DARK, COLOR_GOLD_DARK, 10f, 1)
             addView(sectionTitle("보호 창고  $storageItems / $storageCapacity"))
-            addView(createTransferGrid("STORAGE", storageRows, 5, storageCapacity), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+            addView(gameScrollView(createTransferGrid("STORAGE", storageRows, 5, storageCapacity), fillViewport = false), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         }
         body.addView(inventoryPanel, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply { marginEnd = dp(12) })
         body.addView(storagePanel, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
@@ -1506,11 +1181,28 @@ class MainActivity : GameActivity() {
         createCommonItemGrid(container, rows, columns, capacity)
 
     private fun moveStoredItem(itemId: Long, targetContainer: String, targetSlot: Int) {
+        val changingDungeonLoadout = shopOverlay?.contentDescription == "dungeon_loadout"
         databaseExecutor.execute {
             val result = inventoryRepository.moveToSlot(currentPlayerId, itemId, targetContainer, targetSlot)
             ownedItems = result.items
+            var equippedMessage: String? = null
+            if (changingDungeonLoadout && targetContainer == "INVENTORY") {
+                val movedItem = ownedItems.firstOrNull { it.id == itemId }
+                val category = movedItem?.takeIf { it.isIdentified && !ItemCatalog.isConsumable(it.itemCode) }
+                    ?.let { ItemCatalog.category(it.itemCode) }
+                if (movedItem != null && category in EQUIPMENT_CATEGORIES) {
+                    val dao = gameDatabase.ownedItemDao()
+                    gameDatabase.runInTransaction {
+                        dao.clearEquippedCategories(currentPlayerId, listOf(category!!))
+                        dao.setEquipped(movedItem.id)
+                    }
+                    ownedItems = dao.getForOwner(currentPlayerId)
+                    if (category == "WEAPON") dungeonEquippedWeaponCode = movedItem.itemCode
+                    equippedMessage = "${movedItem.displayName}으로 장착 장비를 변경했습니다."
+                }
+            }
             runOnUiThread {
-                Toast.makeText(this, result.message, Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, equippedMessage ?: result.message, Toast.LENGTH_SHORT).show()
                 refreshCurrentItemScreen()
             }
         }
@@ -1518,17 +1210,19 @@ class MainActivity : GameActivity() {
 
     private fun refreshCurrentItemScreen() {
         val overlay = shopOverlay ?: return
-        val isWarehouseScreen = overlay.contentDescription == "inn_warehouse"
-        val isBlacksmithScreen = overlay.contentDescription == "blacksmith_store"
-        val isDungeonLoadout = overlay.contentDescription == "dungeon_loadout"
+        val screen = overlay.contentDescription?.toString()
+        val reopenScreen: (() -> Unit) = when (screen) {
+            "inn_warehouse" -> ::showInnWarehouse
+            "blacksmith_store" -> { { showShopInterface(true) } }
+            "general_store" -> { { showShopInterface(false) } }
+            "dungeon_loadout" -> ::showDungeonLoadout
+            "appraisal_office" -> ::showAppraisalOffice
+            "traveling_merchant" -> ::showTravelingMerchant
+            else -> return
+        }
         (overlay.parent as? ViewGroup)?.removeView(overlay)
         shopOverlay = null
-        when {
-            isWarehouseScreen -> showInnWarehouse()
-            isBlacksmithScreen -> showShopInterface(true)
-            isDungeonLoadout -> showDungeonLoadout()
-            else -> showShopInterface(false)
-        }
+        reopenScreen()
     }
 
     private fun transferStoredItem(item: OwnedItemEntity) {
@@ -1561,7 +1255,7 @@ class MainActivity : GameActivity() {
         deceased: List<DeceasedCharacterEntity>,
         profile: LoginProfileEntity?
     ) {
-        val content = createFacilityContent("저택", "ui/village/building_manor_dungeon.png")
+        val content = createFacilityContent("저택", "ui/village/building_manor_dungeon.png", scrollContent = false)
         content.addView(TextView(this).apply {
             text = "생존 ${profile?.survivalDay ?: survivalDay}일 · 가문의 기록과 재산은 다음 세대로 계승됩니다."
             setTextColor(Color.WHITE); textSize = 16f; gravity = Gravity.CENTER
@@ -1607,7 +1301,7 @@ class MainActivity : GameActivity() {
             }
         }
         content.addView(gameScrollView(records), LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(270)
+            ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
         ))
     }
 
@@ -1673,23 +1367,25 @@ class MainActivity : GameActivity() {
         val old = shopOverlay
         (old?.parent as? ViewGroup)?.removeView(old)
         shopOverlay = null
-        val content = createFacilityContent("", "ui/village/building_manor_dungeon.png")
+        val content = createFacilityContent("", "ui/village/building_manor_dungeon.png", scrollContent = false)
         shopOverlay?.contentDescription = "dungeon_loadout"
         val carriedWeapons = ownedItems
             .filter { it.container == "INVENTORY" && ItemCatalog.isWeapon(it.itemCode) }
             .sortedBy { it.slotIndex }
-        dungeonEquippedWeaponCode = carriedWeapons.firstOrNull()?.itemCode
+        dungeonEquippedWeaponCode = carriedWeapons.firstOrNull { it.isEquipped }?.itemCode
+            ?: dungeonEquippedWeaponCode?.takeIf { code -> carriedWeapons.any { it.itemCode == code } }
+            ?: carriedWeapons.firstOrNull()?.itemCode
         val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        controls.addView(antiqueButton("지하 1층 입장", dp(170), dp(46)).apply {
+        controls.addView(antiqueButton(if (unlockedDungeonStartFloor >= 10) "던전 입장" else "지하 1층 입장", dp(170), dp(46)).apply {
             setOnClickListener { showDungeonEntryConfirmation() }
         })
         content.addView(controls, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)))
         val body = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        content.addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, itemGridHeight(5)))
+        content.addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         body.addView(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(sectionTitle("가져갈 아이템"))
-            addView(createInventoryGrid(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+            addView(gameScrollView(createInventoryGrid(), fillViewport = false), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.15f).apply { marginEnd = dp(14) })
 
         val equippedPanel = LinearLayout(this).apply {
@@ -1732,6 +1428,23 @@ class MainActivity : GameActivity() {
         addView(TextView(this@MainActivity).apply {
             text = slotName; setTextColor(COLOR_GOLD); textSize = 13f; typeface = Typeface.DEFAULT_BOLD
         }, LinearLayout.LayoutParams(dp(52), ViewGroup.LayoutParams.MATCH_PARENT).apply { gravity = Gravity.CENTER_VERTICAL })
+        addView(FrameLayout(this@MainActivity).apply {
+            background = antiquePanel(
+                0xD91B1510.toInt(),
+                item?.let { ItemCatalog.gradeColor(it.itemCode) } ?: 0xFF514634.toInt(),
+                6f,
+                if (item == null) 1 else 2
+            )
+            if (item != null) {
+                addView(ImageView(this@MainActivity).apply {
+                    scaleType = ImageView.ScaleType.CENTER_CROP
+                    setImageBitmap(assets.open(assetPathFor(item.itemCode)).use(BitmapFactory::decodeStream))
+                    contentDescription = item.displayName
+                }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT).apply {
+                    setMargins(dp(4), dp(4), dp(4), dp(4))
+                })
+            }
+        }, LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginEnd = dp(8) })
         addView(TextView(this@MainActivity).apply {
             text = if (item == null || definition == null) {
                 "비어 있음"
@@ -1759,7 +1472,7 @@ class MainActivity : GameActivity() {
             }
         }
     }.apply {
-        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58)).apply { bottomMargin = dp(6) }
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(64)).apply { bottomMargin = dp(6) }
     }
 
     private fun showDungeonEntryConfirmation() {
@@ -1779,29 +1492,31 @@ class MainActivity : GameActivity() {
             }
         }
         val equippedName = carriedItems.firstOrNull { it.itemCode == dungeonEquippedWeaponCode }?.displayName ?: "없음"
+        val actions = mutableListOf(AntiqueGameDialog.Action("마을에 남기"))
+        actions += AntiqueGameDialog.Action("지하 1층 입장", primary = unlockedDungeonStartFloor < 10) { showDungeonDemo(1) }
+        if (unlockedDungeonStartFloor >= 10) {
+            actions += AntiqueGameDialog.Action("지하 10층 입장", primary = true) { showDungeonDemo(10) }
+        }
         AntiqueGameDialog.show(
             this,
             AntiqueGameDialog.Config(
                 title = "지하 원정 서약",
-                subtitle = "모든 탐험은 지하 1층에서 시작됩니다",
+                subtitle = if (unlockedDungeonStartFloor >= 10) "해금된 시작 지점을 선택할 수 있습니다" else "모든 탐험은 지하 1층에서 시작됩니다",
                 body = "착용 무기\n  $equippedName\n\n가져갈 소지품\n$itemSummary",
                 warning = "사망하면 가져간 장비와 소지품을 모두 잃습니다. 창고와 골드만 계승됩니다.",
-                actions = listOf(
-                    AntiqueGameDialog.Action("마을에 남기"),
-                    AntiqueGameDialog.Action("지하 1층 입장", primary = true) { showDungeonDemo() }
-                ),
+                actions = actions,
                 actionsAboveBody = true,
                 scrollHint = "↕ 소지품 목록을 위아래로 움직여 확인"
             )
         )
     }
 
-    private fun showDungeonDemo() {
+    private fun showDungeonDemo(startFloor: Int = 1) {
         val old = shopOverlay
         (old?.parent as? ViewGroup)?.removeView(old)
 
         isDungeonActive = true
-        currentDungeonFloor = 1
+        currentDungeonFloor = startFloor
         updateBackgroundMusic()
         val identifiedInventory = ownedItems.filter { it.container == "INVENTORY" && it.isIdentified }
         val appraisedAttackByCode = identifiedInventory.mapNotNull { item -> item.appraisedAttackPower?.let { item.itemCode to it } }.toMap()
@@ -1827,6 +1542,12 @@ class MainActivity : GameActivity() {
                 monsterCountMin = gameInt("dungeon_monster_count_min", 5),
                 monsterCountMax = gameInt("dungeon_monster_count_max", 10),
                 returnStoneCombatLockFloor = gameInt("return_stone_combat_lock_floor", 11),
+                redMoonActive = isRedMoonActive(),
+                redMoonMonsterAttackPercent = gameInt("red_moon_monster_attack_percent", 150),
+                redMoonDropRatePercent = gameInt("red_moon_drop_rate_percent", 200),
+                redMoonReturnFloorInterval = gameInt("red_moon_return_floor_interval", 5),
+                expandedWeaponDropPercent = gameInt("expanded_weapon_drop_percent", 8),
+                initialFloor = startFloor,
                 dungeonChestSpawnPercent = gameInt("dungeon_chest_spawn_percent", 25),
                 dungeonChestMimicPercent = gameInt("dungeon_chest_mimic_percent", 25),
                 savedRunPayload = dungeonRunPayload,
@@ -1853,6 +1574,13 @@ class MainActivity : GameActivity() {
                         databaseExecutor.execute { gameDatabase.loginProfileDao().updateHighestFloor(ownerId, floor) }
                     }
                     updateBackgroundMusic()
+                },
+                onFloorCleared = { floor ->
+                    if (floor >= 10 && unlockedDungeonStartFloor < 10) {
+                        unlockedDungeonStartFloor = 10
+                        val ownerId = currentPlayerId
+                        databaseExecutor.execute { gameDatabase.loginProfileDao().updateUnlockedDungeonStartFloor(ownerId, 10) }
+                    }
                 },
                 onPersistRun = { payload ->
                     dungeonRunPayload = payload
@@ -1962,30 +1690,6 @@ class MainActivity : GameActivity() {
     }
 
     private fun showGameOver(deceasedName: String, generation: Int, deathMessage: String) {
-        val overlay = FrameLayout(this).apply {
-            setBackgroundColor(0xE6000000.toInt())
-            isClickable = true
-            isFocusable = true
-        }
-        val panel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(42), dp(30), dp(42), dp(28))
-            background = antiquePanel(0xF5170C0B.toInt(), 0xFF7D2925.toInt(), 14f, 2)
-            elevation = dp(18).toFloat()
-        }
-        panel.addView(TextView(this).apply {
-            text = "GAME OVER"
-            setTextColor(0xFFCF3F38.toInt())
-            textSize = 34f
-            typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
-            gravity = Gravity.CENTER
-            letterSpacing = .12f
-            setShadowLayer(dp(5).toFloat(), 0f, dp(3).toFloat(), Color.BLACK)
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58)).apply {
-            bottomMargin = dp(14)
-        })
-
         val messages = listOf(
             deathMessage,
             "${generation}세 · $deceasedName",
@@ -1993,73 +1697,13 @@ class MainActivity : GameActivity() {
             "던전에 가져간 장비와 소지품은 어둠 속에 남겨졌다.",
             "그러나 창고의 재산과 가문의 기록은 다음 세대로 이어진다."
         )
-        val messageViews = messages.mapIndexed { index, message ->
-            TextView(this).apply {
-                text = message
-                setTextColor(
-                    when (index) {
-                        0 -> 0xFFFFA099.toInt()
-                        messages.lastIndex -> COLOR_GOLD
-                        else -> Color.WHITE
-                    }
-                )
-                textSize = if (index == 0) 18f else 16f
-                typeface = if (index == 0 || index == messages.lastIndex) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-                gravity = Gravity.CENTER
-                alpha = 0f
-                translationY = -dp(10).toFloat()
-                setLineSpacing(dp(4).toFloat(), 1f)
-                panel.addView(this, LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = dp(14) })
-            }
-        }
-        val touchPrompt = TextView(this).apply {
-            text = "화면을 터치하여 새로운 캐릭터 만들기"
-            setTextColor(0xFFD0A653.toInt())
-            textSize = 15f
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-            alpha = 0f
-            letterSpacing = .05f
-        }
-        panel.addView(touchPrompt, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(42)
-        ).apply { topMargin = dp(8) })
-
-        val gameOverScroll = gameScrollView(panel, showScrollbar = false)
-        overlay.addView(gameOverScroll, FrameLayout.LayoutParams(
-            minOf(dp(780), resources.displayMetrics.widthPixels - dp(70)),
-            resources.displayMetrics.heightPixels - dp(36),
-            Gravity.CENTER
+        TimedStoryOverlay.show(this, TimedStoryOverlay.Config(
+            title = "GAME OVER",
+            lines = messages,
+            prompt = "화면을 터치하여 새로운 캐릭터 만들기",
+            style = TimedStoryOverlay.Style.GAME_OVER,
+            onFinished = { returnToLoginAfterDeath(deceasedName, generation, deathMessage) }
         ))
-        addContentView(overlay, ViewGroup.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
-        ))
-        overlay.bringToFront()
-
-        messageViews.forEachIndexed { index, messageView ->
-            messageView.postDelayed({
-                if (overlay.parent != null) {
-                    messageView.animate().alpha(1f).translationY(0f).setDuration(1_350L).start()
-                    gameOverScroll.post { gameOverScroll.smoothScrollTo(0, messageView.bottom) }
-                }
-            }, index * 1_000L)
-        }
-        var canContinue = false
-        overlay.postDelayed({
-            canContinue = true
-            touchPrompt.animate().alpha(1f).setDuration(700L).start()
-        }, (messages.lastIndex * 1_000L) + 1_350L)
-        overlay.setOnClickListener {
-            if (!canContinue) return@setOnClickListener
-            canContinue = false
-            overlay.isClickable = false
-            overlay.animate().alpha(0f).setDuration(800L).withEndAction {
-                (overlay.parent as? ViewGroup)?.removeView(overlay)
-                returnToLoginAfterDeath(deceasedName, generation, deathMessage)
-            }.start()
-        }
     }
 
     private fun returnToLoginAfterDeath(deceasedName: String, generation: Int, deathMessage: String) {
@@ -2176,74 +1820,10 @@ class MainActivity : GameActivity() {
                 val returnMessage = if (consumeReturnStone) "귀환석을 사용해 마을로 돌아왔습니다" else "탐험을 마치고 마을로 돌아왔습니다"
                 Toast.makeText(this, "$returnMessage · 생존 ${survivalDay}일$lootMessage$brokenMessage", Toast.LENGTH_LONG).show()
                 updateTravelingMerchantVisibility()
+                updateRedMoonVisibility()
             }
         }
     }
-
-    private fun sectionTitle(title: String): TextView = TextView(this).apply {
-        text = title
-        setTextColor(COLOR_GOLD)
-        textSize = 18f
-        typeface = Typeface.DEFAULT_BOLD
-        gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(6), 0, 0, 0)
-        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(34))
-    }
-
-    private fun itemImage(assetPath: String): ImageView = ImageView(this).apply {
-        scaleType = ImageView.ScaleType.CENTER_CROP
-        setImageBitmap(assets.open(assetPath).use(BitmapFactory::decodeStream))
-    }
-
-    private fun quantityBadge(value: String): TextView = TextView(this).apply {
-        text = value
-        setTextColor(Color.WHITE)
-        textSize = 14f
-        typeface = Typeface.DEFAULT_BOLD
-        gravity = Gravity.CENTER
-        setShadowLayer(dp(2).toFloat(), 0f, dp(1).toFloat(), Color.BLACK)
-    }
-
-    private fun itemQuantityLayoutParams(): FrameLayout.LayoutParams = FrameLayout.LayoutParams(
-        dp(38), dp(24), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-    ).apply { bottomMargin = dp(3) }
-
-    private fun itemGridHeight(rows: Int): Int {
-        val slotHeight = (dp(64) * HexagonSlotView.HEX_HEIGHT_RATIO).toInt()
-        return rows * (slotHeight + dp(8)) + dp(4)
-    }
-
-    private fun antiqueButton(label: String, width: Int, height: Int): Button = Button(this).apply {
-        text = label
-        setTextColor(Color.WHITE)
-        textSize = 15f
-        gravity = Gravity.CENTER
-        minWidth = 0
-        minHeight = 0
-        setPadding(0, 0, 0, 0)
-        stateListAnimator = null
-        background = antiquePanel(0xFF5B2418.toInt(), COLOR_GOLD, 7f, 2)
-        layoutParams = LinearLayout.LayoutParams(width, height)
-    }
-
-    private fun antiquePanel(fillColor: Int, strokeColor: Int, radiusDp: Float, strokeDp: Int): GradientDrawable {
-        return GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            setColor(fillColor)
-            cornerRadius = dp(radiusDp).toFloat()
-            setStroke(dp(strokeDp), strokeColor)
-        }
-    }
-
-    private fun matchParentParams(marginDp: Int = 0): FrameLayout.LayoutParams {
-        return FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.MATCH_PARENT
-        ).apply { setMargins(marginDp, marginDp, marginDp, marginDp) }
-    }
-
-    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
-    private fun dp(value: Float): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun closeShop() {
         val overlay = shopOverlay ?: return
@@ -2261,14 +1841,6 @@ class MainActivity : GameActivity() {
     }
 
     private fun setVillageHotspotsEnabled(enabled: Boolean) {
-        generalStoreHotspot.isEnabled = enabled
-        blacksmithHotspot.isEnabled = enabled
-        appraisalHotspot.isEnabled = enabled
-        innWarehouseHotspot.isEnabled = enabled
-        manorHotspot.isEnabled = enabled
-        dungeonEntranceHotspot.isEnabled = enabled
-        if (::travelingMerchantHotspot.isInitialized) {
-            travelingMerchantHotspot.isEnabled = enabled && travelingMerchantHotspot.visibility == View.VISIBLE
-        }
+        villageMapOverlay.setFacilityInteractionEnabled(enabled)
     }
 }

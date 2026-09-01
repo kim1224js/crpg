@@ -14,6 +14,7 @@ data class LoginProfileEntity(
     val survivalDay: Int = 1,
     val lastManorSearchDay: Int = 0,
     val highestFloor: Int = 1,
+    val unlockedDungeonStartFloor: Int = 1,
     val pendingEstateLossCount: Int = 0,
     val pendingEstateKeptNames: String? = null,
     val lastMerchantFreeDay: Int = 0,

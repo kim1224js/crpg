@@ -21,6 +21,9 @@ interface LoginProfileDao {
     @Query("UPDATE login_profile SET highestFloor = MAX(highestFloor, :floor) WHERE id = :id")
     fun updateHighestFloor(id: Long, floor: Int)
 
+    @Query("UPDATE login_profile SET unlockedDungeonStartFloor = MAX(unlockedDungeonStartFloor, :floor) WHERE id = :id")
+    fun updateUnlockedDungeonStartFloor(id: Long, floor: Int)
+
     @Query("UPDATE login_profile SET pendingEstateLossCount = 0, pendingEstateKeptNames = NULL WHERE id = :id")
     fun clearEstateNotice(id: Long)
 

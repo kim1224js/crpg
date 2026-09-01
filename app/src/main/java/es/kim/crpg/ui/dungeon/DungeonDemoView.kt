@@ -46,8 +46,14 @@ class DungeonDemoView(
     private val monsterCountMin: Int = 5,
     private val monsterCountMax: Int = 10,
     private val returnStoneCombatLockFloor: Int = 11,
+    private val redMoonActive: Boolean = false,
+    private val redMoonMonsterAttackPercent: Int = 150,
+    private val redMoonDropRatePercent: Int = 200,
+    private val redMoonReturnFloorInterval: Int = 5,
+    private val expandedWeaponDropPercent: Int = 8,
     private val dungeonChestSpawnPercent: Int = 25,
     private val dungeonChestMimicPercent: Int = 25,
+    private val initialFloor: Int = 1,
     private val savedRunPayload: String? = null,
     villageGold: Int = 0,
     playerBaseHp: Int = 10,
@@ -59,6 +65,7 @@ class DungeonDemoView(
     private val onSpendReviveGold: (Int) -> Unit = {},
     private val onEquipItem: (String, String) -> Unit = { _, _ -> },
     private val onFloorChanged: (Int) -> Unit = {},
+    private val onFloorCleared: (Int) -> Unit = {},
     private val onPersistRun: (String) -> Unit = {}
 ) : View(context) {
     private enum class MonsterKind { SPIDER, BANDIT, WILD_DOG, SLIME }
@@ -87,7 +94,8 @@ class DungeonDemoView(
         var blockedMoveTurns: Int = 0, var rootTurns: Int = 0,
         val bleedTurns: MutableList<Int> = mutableListOf(), var firstAttackUsed: Boolean = false,
         var revivedOnce: Boolean = false, var attackCooldown: Int = 0,
-        var alerted: Boolean = false, var guaranteedChestGrade: String? = null
+        var alerted: Boolean = false, var alertIndicatorUntil: Long = 0L,
+        var guaranteedChestGrade: String? = null
     )
 
     private data class LootPile(
@@ -131,6 +139,8 @@ class DungeonDemoView(
     private val upperDungeonBackground = bitmap("ui/dungeon/concepts/dungeon_gameplay_grid_concept.png")
     private val floodedCatacombBackground = bitmap("ui/dungeon/concepts/dungeon_floors_06_10_flooded_catacomb.png")
     private val ashenFurnaceBackground = bitmap("ui/dungeon/concepts/dungeon_floors_11_15_ashen_furnace.png")
+    private val demonAbyssBackground = bitmap("ui/dungeon/concepts/backgrounds_16_20.png")
+    private val abyssalSanctuaryBackground = bitmap("ui/dungeon/concepts/dungeon_floors_21_25_abyssal_sanctuary.png")
     private val fireEffect = bitmap("ui/dungeon/effects/fire_ground_vfx.png")
     private val obstacleBitmaps = listOf(ObstacleKind.STONE_PILLAR, ObstacleKind.DEAD_TREE).associateWith {
         bitmap("ui/dungeon/terrain/${it.assetName}.png")
@@ -188,7 +198,9 @@ class DungeonDemoView(
     private var lootedGold = 0
     private var equippedWeapon = weapons.firstOrNull { it.code == equippedWeaponCode && itemCount(it.code) > 0 }
         ?: weapons.firstOrNull { itemCount(it.code) > 0 }
-    private val weaponSheets = weapons.associate { it.code to bitmap(it.sheetPath) }
+    private var lastWeaponTarget: UnitSprite? = null
+    private val weaponSheetAssets = weapons.map { it.sheetPath }.distinct().associateWith(::bitmap)
+    private val weaponSheets = weapons.associate { it.code to weaponSheetAssets.getValue(it.sheetPath) }
     private val player = UnitSprite(
         "플레이어", 2, 8,
         equippedWeapon?.let { weaponSheets.getValue(it.code) } ?: bitmap("ui/dungeon/player/player_base_animation_sheet.png"),
@@ -199,19 +211,19 @@ class DungeonDemoView(
     private val stairsColumn = 22
     private val stairsRow = 1
     private val monsterSpawnSeed = Random.nextLong()
-    private val monsters = createFloorMonsters(1)
+    private val monsters = createFloorMonsters(initialFloor)
     private val visibleColumns = 8f
     private val visibleRows = 7f
     private val obstacles = linkedMapOf<Pair<Int, Int>, ObstacleKind>()
     private val floorObstacleSeed = Random.nextLong()
-    private val healingObjects = createHealingObjects(1)
-    private val treasureChests = createTreasureChests(1)
+    private val healingObjects = createHealingObjects(initialFloor)
+    private val treasureChests = createTreasureChests(initialFloor)
     private var cameraColumn = 0f
     private var cameraRow = 4f
     private var phase = Phase.PLAYER
     private var focusedMonster: UnitSprite? = null
     private var turn = 1
-    private var currentFloor = 1
+    private var currentFloor = initialFloor
     private var pendingMonsterRounds = 0
     private var monsterRoundSequence = 0
     private var animationFrame = 0
@@ -232,8 +244,9 @@ class DungeonDemoView(
     private var projectile: Projectile? = null
     private val effectAnimations = mutableListOf<EffectAnimation>()
     private var autoWalking = false
+    private var pendingAutoWalkContinuation: (() -> Unit)? = null
     private var playerMoveAnimation: PlayerMoveAnimation? = null
-    private var combatSpeed = 1
+    private var combatSpeed = 3
     private var torchEmpoweredFloor: Int? = null
     private var availableVillageGold = villageGold
     private var greedCoinUsed = false
@@ -247,9 +260,8 @@ class DungeonDemoView(
     private var movedTilesSinceAttack = 0
     private var turnsWithoutDamage = 0
     private var regenHealsThisFloor = 0
-    private val inventoryIcons = (inventoryCounts.keys + dropItemCodes).distinct().mapNotNull { code ->
-        itemAssetPath(code)?.let { code to bitmap(it) }
-    }.toMap()
+    private val inventoryIconAssets = itemDefinitions.map { it.assetPath }.distinct().associateWith { bitmap(it, 256) }
+    private val inventoryIcons = itemDefinitions.associate { it.code to inventoryIconAssets.getValue(it.assetPath) }
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -265,6 +277,7 @@ class DungeonDemoView(
         onFloorChanged(currentFloor)
         persistRun()
         isClickable = true
+        post { showLandmarkSequence() }
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -578,8 +591,8 @@ class DungeonDemoView(
         }
         if (column == stairsColumn && row == stairsRow) { tryDescendFloor(); return }
         lootPiles.firstOrNull { it.column == column && it.row == row }?.let { pile ->
-            if (monsters.none { it.alive } && distance(player.column, player.row, pile.column, pile.row) != 1) {
-                autoApproach(listOf(pile.column to pile.row), "전리품으로 자동 이동 중") { collectLoot(pile) }
+            if (!isLootPickupRange(pile)) {
+                autoApproach(listOf(pile.column to pile.row), "전리품으로 자동 이동 중", allowDiagonalInteraction = true) { collectLoot(pile) }
             } else {
                 collectLoot(pile)
             }
@@ -648,6 +661,8 @@ class DungeonDemoView(
             "LEGENDARY" -> "전설"; "MYTHIC" -> "신화"; else -> "노말"
         }
         val returnStoneRestricted = code == "return_stone" && currentFloor >= returnStoneCombatLockFloor
+        val redMoonReturnRestricted = code == "return_stone" && redMoonActive &&
+            currentFloor % redMoonReturnFloorInterval.coerceAtLeast(1) != 0
         val actions = mutableListOf(AntiqueGameDialog.Action("닫기"))
         when {
             item.category == "CONSUMABLE" -> actions += AntiqueGameDialog.Action("사용", primary = true) {
@@ -668,6 +683,7 @@ class DungeonDemoView(
                     if (returnStoneRestricted) {
                         append("\n\n※ 지하 ${returnStoneCombatLockFloor}층부터는 몬스터가 남아 있는 전투 중에 사용할 수 없습니다.")
                     }
+                    if (redMoonReturnRestricted) append("\n\n※ 붉은 달에는 5층 단위의 층에서만 귀환할 수 있습니다.")
                 },
                 actions = actions,
                 bodyHeightDp = 150
@@ -708,6 +724,12 @@ class DungeonDemoView(
             invalidate()
             return
         }
+        val returnInterval = redMoonReturnFloorInterval.coerceAtLeast(1)
+        if (redMoonActive && currentFloor % returnInterval != 0) {
+            message = "붉은 달에는 ${returnInterval}층마다 귀환할 수 있습니다"
+            invalidate()
+            return
+        }
         if (currentFloor >= returnStoneCombatLockFloor && monsters.any { it.alive }) {
             message = "지하 ${returnStoneCombatLockFloor}층부터는 전투 중 귀환석을 사용할 수 없습니다"
             invalidate()
@@ -733,10 +755,20 @@ class DungeonDemoView(
     }
 
     private fun tryDescendFloor() {
-        if (monsters.any { it.alive }) {
-            message = "층의 몬스터를 모두 처치해야 계단이 열립니다"; invalidate(); return
-        }
         if (autoWalking) return
+        if (monsters.any { it.alive } && (player.column != stairsColumn || player.row != stairsRow)) {
+            if (distance(player.column, player.row, stairsColumn, stairsRow) == 1 && !occupied(stairsColumn, stairsRow)) {
+                startPlayerMovement(stairsColumn, stairsRow, combatDuration(520L))
+                playAction(player, 1, 520L)
+                phase = Phase.MONSTERS
+                message = "몬스터를 피해 계단에 진입했습니다"
+                postDelayed({ beginMonsterTurns(1) }, combatDuration(520L))
+            } else {
+                message = "전투 중에는 계단 근처까지 직접 이동해야 합니다"
+            }
+            invalidate()
+            return
+        }
         val path = findPathToGoals(setOf(stairsColumn to stairsRow))
         if (path == null) {
             message = "계단으로 이동할 수 있는 경로가 없습니다"
@@ -744,14 +776,14 @@ class DungeonDemoView(
             return
         }
         if (path.isEmpty()) {
-            showFloorChoice(canDescend = currentFloor < 15)
+            showFloorChoice(canDescend = currentFloor < 25)
             return
         }
         autoWalking = true
         phase = Phase.MONSTERS
         message = "계단으로 자동 이동 중"
         walkPathWithoutTurns(path, 0, "아래층 계단에 도착했습니다") {
-            showFloorChoice(canDescend = currentFloor < 15)
+            showFloorChoice(canDescend = currentFloor < 25)
         }
     }
 
@@ -771,6 +803,7 @@ class DungeonDemoView(
                 val next = current.first + direction.first to current.second + direction.second
                 if (next.first !in 0 until columns || next.second !in 0 until rows) return@forEach
                 if (next in previous || obstacles.contains(next)) return@forEach
+                if (monsters.any { it.alive && it.hp > 0 && it.column == next.first && it.row == next.second }) return@forEach
                 if (next !in goals && healingObjects.any { next in occupiedCells(it) }) return@forEach
                 previous[next] = current
                 queue.addLast(next)
@@ -786,15 +819,26 @@ class DungeonDemoView(
         return reversed.asReversed()
     }
 
-    private fun autoApproach(targetCells: List<Pair<Int, Int>>, movingMessage: String, onArrived: () -> Unit) {
-        if (autoWalking || monsters.any { it.alive }) return
+    private fun autoApproach(
+        targetCells: List<Pair<Int, Int>>,
+        movingMessage: String,
+        allowDiagonalInteraction: Boolean = false,
+        onArrived: () -> Unit
+    ) {
+        if (autoWalking) return
+        val directions = if (allowDiagonalInteraction) {
+            listOf(-1 to -1, 0 to -1, 1 to -1, -1 to 0, 1 to 0, -1 to 1, 0 to 1, 1 to 1)
+        } else {
+            listOf(1 to 0, -1 to 0, 0 to 1, 0 to -1)
+        }
         val goals = targetCells.flatMap { target ->
-            listOf(1 to 0, -1 to 0, 0 to 1, 0 to -1).map { direction ->
+            directions.map { direction ->
                 target.first + direction.first to target.second + direction.second
             }
         }.filter { cell ->
             cell.first in 0 until columns && cell.second in 0 until rows &&
-                !obstacles.contains(cell) && healingObjects.none { cell in occupiedCells(it) }
+                !obstacles.contains(cell) && healingObjects.none { cell in occupiedCells(it) } &&
+                monsters.none { it.alive && it.hp > 0 && it.column == cell.first && it.row == cell.second }
         }.toSet()
         val path = findPathToGoals(goals)
         if (path == null) {
@@ -804,9 +848,51 @@ class DungeonDemoView(
         }
         if (path.isEmpty()) { onArrived(); return }
         autoWalking = true
+        message = movingMessage
+        if (monsters.any { it.alive && it.hp > 0 }) {
+            continueCombatAutoApproach(goals, movingMessage, onArrived)
+        } else {
+            phase = Phase.MONSTERS
+            walkPathWithoutTurns(path, 0, "목적지에 도착했습니다", onArrived)
+        }
+    }
+
+    private fun continueCombatAutoApproach(
+        goals: Set<Pair<Int, Int>>,
+        movingMessage: String,
+        onArrived: () -> Unit
+    ) {
+        val path = findPathToGoals(goals)
+        if (path == null) {
+            autoWalking = false
+            phase = Phase.PLAYER
+            message = "몬스터에게 길이 막혀 자동 이동을 중단했습니다"
+            invalidate()
+            return
+        }
+        if (path.isEmpty()) {
+            autoWalking = false
+            phase = Phase.PLAYER
+            message = "목적지에 도착했습니다"
+            invalidate()
+            onArrived()
+            return
+        }
+        if (monsters.none { it.alive && it.hp > 0 }) {
+            phase = Phase.MONSTERS
+            walkPathWithoutTurns(path, 0, "목적지에 도착했습니다", onArrived)
+            return
+        }
+        val next = path.first()
+        startPlayerMovement(next.first, next.second, combatDuration(520L))
+        movedTilesSinceAttack++
+        playAction(player, 1, 520L)
+        focusCamera(player.column, player.row)
         phase = Phase.MONSTERS
         message = movingMessage
-        walkPathWithoutTurns(path, 0, "목적지에 도착했습니다", onArrived)
+        pendingAutoWalkContinuation = { continueCombatAutoApproach(goals, movingMessage, onArrived) }
+        invalidate()
+        postDelayed({ beginMonsterTurns(1) }, combatDuration(520L))
     }
 
     private fun walkPathWithoutTurns(
@@ -834,6 +920,7 @@ class DungeonDemoView(
 
     private fun showFloorChoice(canDescend: Boolean) {
         phase = Phase.MONSTERS
+        onFloorCleared(currentFloor)
         val actions = mutableListOf(
             AntiqueGameDialog.Action("마을가기", primary = !canDescend) {
                 onExitDungeon(acquiredCounts.toMap(), lootedGold, consumedCounts.toMap(), equippedCodes())
@@ -897,10 +984,37 @@ class DungeonDemoView(
         treasureChests.clear(); treasureChests.addAll(createTreasureChests(currentFloor))
         focusedMonster = null; pendingMonsterRounds = 0
         createObstacles(); focusCamera(player.column, player.row)
-        phase = Phase.PLAYER
+        phase = Phase.MONSTERS
         message = "지하 ${currentFloor}층에 진입했습니다"
         persistRun()
         invalidate()
+        showLandmarkSequence()
+    }
+
+    private fun showLandmarkSequence() {
+        val landmarks = buildList {
+            healingObjects.forEach { add(Triple(it.column, it.row, "회복 구조물 · ${it.definition.name}")) }
+            treasureChests.forEach { chest ->
+                add(Triple(chest.column, chest.row, if (chest.mimic) "미믹이 숨어 있는 상자" else "던전 보물 상자"))
+            }
+            add(Triple(stairsColumn, stairsRow, "아래층으로 향하는 출구"))
+        }
+        phase = Phase.MONSTERS
+        fun focusNext(index: Int) {
+            if (index >= landmarks.size) {
+                focusCamera(player.column, player.row)
+                phase = Phase.PLAYER
+                message = "지하 ${currentFloor}층 탐험을 시작합니다"
+                invalidate()
+                return
+            }
+            val (column, row, label) = landmarks[index]
+            focusCamera(column, row)
+            message = label
+            invalidate()
+            postDelayed({ focusNext(index + 1) }, combatDuration(1_200L))
+        }
+        focusNext(0)
     }
 
     private fun throwFireBomb(column: Int, row: Int) {
@@ -1010,32 +1124,34 @@ class DungeonDemoView(
 
     private fun attackMonster(monster: UnitSprite) {
         val weapon = equippedWeapon ?: run { message = "착용한 무기가 없어 공격할 수 없습니다"; invalidate(); return }
-        val targetDistance = if (weapon.specialEffect == "ADJACENT_SWEEP") {
+        val style = weaponStyle(weapon)
+        val targetDistance = if (style == "ADJACENT_SWEEP") {
             max(abs(player.column - monster.column), abs(player.row - monster.row))
         } else distance(player.column, player.row, monster.column, monster.row)
         if (targetDistance > weapon.range) { message = "${weapon.name} 사거리 밖입니다"; return }
-        if (weapon.specialEffect != "ADJACENT_SWEEP" && !hasLineOfSight(player.column, player.row, monster.column, monster.row)) { message = "장애물에 공격 경로가 막혔습니다"; return }
+        if (style != "ADJACENT_SWEEP" && !hasLineOfSight(player.column, player.row, monster.column, monster.row)) { message = "장애물에 공격 경로가 막혔습니다"; return }
         val direction = alignedDirection(monster)
-        if (weapon.specialEffect == "LINE_THRUST" && direction == null) {
+        if (style == "LINE_THRUST" && direction == null) {
             message = "창은 상하좌우 일직선으로만 찌를 수 있습니다"; invalidate(); return
         }
         val targets = when {
-            weapon.specialEffect == "ADJACENT_SWEEP" -> monsters.filter {
+            style == "ADJACENT_SWEEP" -> monsters.filter {
                 it.alive && it.hp > 0 && max(abs(player.column - it.column), abs(player.row - it.row)) == 1
             }
-            weapon.specialEffect == "LINE_THRUST" -> lineTargets(direction!!, weapon.range)
-            weapon.specialEffect == "KILL_PIERCE" && direction != null -> lineTargets(direction, weapon.range)
+            style == "LINE_THRUST" -> lineTargets(direction!!, weapon.range)
+            style == "KILL_PIERCE" && direction != null -> lineTargets(direction, weapon.range)
             else -> listOf(monster)
         }
         if (targets.isEmpty()) return
         phase = Phase.MONSTERS; playAction(player, 2, 760L)
-        soundPlayer.playWeaponAttack(weapon.code)
-        val travelDuration = combatDuration(if (weapon.code == "crude_bow" || weapon.code == "crude_gun") 520L else 240L)
-        if (weapon.code == "crude_bow" || weapon.code == "crude_gun") {
-            launchProjectile(weapon.code, player.column, player.row, targets.first(), travelDuration)
+        soundPlayer.playWeaponAttack(weaponAudioCode(weapon))
+        val ranged = style == "DOUBLE_SHOT_50" || style == "KILL_PIERCE"
+        val travelDuration = combatDuration(if (ranged) 520L else 240L)
+        if (ranged) {
+            launchProjectile(weaponAudioCode(weapon), player.column, player.row, targets.first(), travelDuration)
         }
         postDelayed({
-            when (weapon.specialEffect) {
+            when (style) {
                 "ADJACENT_SWEEP" -> resolveAdjacentSweep(targets, weapon)
                 "DOUBLE_SHOT_50" -> resolveBowShot(targets.first(), weapon)
                 "LINE_THRUST" -> resolveLineThrust(targets, weapon)
@@ -1057,7 +1173,7 @@ class DungeonDemoView(
         if (firstKilled) { finishWeaponAttack(weapon, true); return }
         postDelayed({
             playAction(player, 2, 620L)
-            soundPlayer.playWeaponAttack(weapon.code)
+            soundPlayer.playWeaponAttack(weaponAudioCode(weapon))
             val secondKilled = applyWeaponHit(monster, weapon)
             message = if (secondKilled) "2연타 · ${monster.name} 처치" else "${monster.name}에게 2연타 · 총 ${effectiveDamage(weapon) * 2} 피해"
             finishWeaponAttack(weapon, secondKilled)
@@ -1071,7 +1187,7 @@ class DungeonDemoView(
             finishWeaponAttack(weapon, true)
             return
         }
-        if (Random.nextDouble() >= optionChance(weapon.code)) {
+        if (Random.nextDouble() >= .50) {
             message = "${monster.name}에게 ${weapon.damage} 피해 · 1턴 소모"
             finishWeaponAttack(weapon, false)
             return
@@ -1079,9 +1195,9 @@ class DungeonDemoView(
         message = "연속 사격 발동"
         postDelayed({
             playAction(player, 2, 620L)
-            soundPlayer.playWeaponAttack(weapon.code)
+            soundPlayer.playWeaponAttack(weaponAudioCode(weapon))
             val secondShotDuration = combatDuration(420L)
-            launchProjectile(weapon.code, player.column, player.row, monster, secondShotDuration)
+            launchProjectile(weaponAudioCode(weapon), player.column, player.row, monster, secondShotDuration)
             postDelayed({
                 val secondKilled = applyWeaponHit(monster, weapon)
                 message = if (secondKilled) {
@@ -1114,7 +1230,7 @@ class DungeonDemoView(
         if (killed && next != null) {
             message = "${target.name} 처치 · 탄환 관통"
             val pierceDuration = combatDuration(220L)
-            launchProjectile(weapon.code, target.column, target.row, next, pierceDuration)
+            launchProjectile(weaponAudioCode(weapon), target.column, target.row, next, pierceDuration)
             postDelayed({ resolveGunPierce(targets, index + 1, weapon) }, pierceDuration)
         } else {
             finishWeaponAttack(weapon, killed)
@@ -1126,19 +1242,33 @@ class DungeonDemoView(
         projectile = null
         focusCamera(monster.column, monster.row)
         impactColumn = monster.column; impactRow = monster.row; impactUntil = System.currentTimeMillis() + 650L
-        soundPlayer.playWeaponImpact(weapon.code)
+        soundPlayer.playWeaponImpact(weaponAudioCode(weapon))
+        val traits = weaponTraits(weapon)
         var damage = effectiveDamage(weapon)
+        val targetWasUnhurt = monster.hp == monster.maxHp
+        traits["FIRST"]?.toIntOrNull()?.takeIf { targetWasUnhurt }?.let { damage += it }
+        traits["WOUNDED"]?.toIntOrNull()?.takeIf { monster.bleedTurns.isNotEmpty() }?.let { damage += it }
+        traits["DISTANCE"]?.toIntOrNull()?.takeIf {
+            distance(player.column, player.row, monster.column, monster.row) >= if (weaponStyle(weapon) == "KILL_PIERCE") 4 else 3
+        }?.let { damage += it }
+        traits["FOCUS"]?.toIntOrNull()?.takeIf { lastWeaponTarget === monster }?.let { damage += it }
+        traits["BOSS"]?.toIntOrNull()?.takeIf { isBossMonster(monster) }?.let { damage += it }
+        traits["LINE_POWER"]?.toIntOrNull()?.takeIf { lineTargets(alignedDirection(monster) ?: (0 to 0), weapon.range).size > 1 }?.let { damage += it }
+        traits["EXECUTE"]?.split(':')?.takeIf { it.size == 2 }?.let { values ->
+            if (monster.hp * 100 <= monster.maxHp * (values[0].toIntOrNull() ?: 0)) damage += values[1].toIntOrNull() ?: 0
+        }
+        traits["CRIT"]?.toIntOrNull()?.let { if (Random.nextInt(100) < it) damage *= 2 }
         if (funeralBellPowerReady) funeralBellPowerReady = false
-        if (equippedAuxiliary == "bloody_hook" && weapon.code == "crude_sword") {
+        if (equippedAuxiliary == "bloody_hook" && weaponStyle(weapon) == "ADJACENT_SWEEP") {
             damage += itemAttack("bloody_hook", 2)
             monster.bleedTurns += 2
             showEffect("bleed", monster)
         }
-        if (equippedAuxiliary == "throwing_dagger" && weapon.code == "crude_spear") {
+        if (equippedAuxiliary == "throwing_dagger" && weaponStyle(weapon) == "LINE_THRUST") {
             damage += itemAttack("throwing_dagger", 3)
             showEffect("thrown_dagger", monster)
         }
-        val ranged = weapon.code == "crude_bow" || weapon.code == "crude_gun"
+        val ranged = weaponStyle(weapon) in setOf("DOUBLE_SHOT_50", "KILL_PIERCE")
         if (ranged && equippedAuxiliary == "venom_dagger" && Random.nextDouble() < optionChance("venom_dagger")) {
             damage += itemAttack("venom_dagger", 2)
             showEffect("poison_shot", monster)
@@ -1148,17 +1278,56 @@ class DungeonDemoView(
             showEffect("web_bind", monster)
         }
         monster.hp -= damage
+        traits["BLEED"]?.toIntOrNull()?.let { if (Random.nextInt(100) < it) { monster.bleedTurns += 2; showEffect("bleed", monster) } }
+        traits["ROOT"]?.toIntOrNull()?.let { if (Random.nextInt(100) < it) { monster.rootTurns = max(monster.rootTurns, 1); showEffect("web_bind", monster) } }
+        traits["PUSH"]?.toIntOrNull()?.let { if (monster.hp > 0 && Random.nextInt(100) < it) pushMonsterAway(monster) }
+        traits["SPLASH"]?.toIntOrNull()?.let { splash -> applyWeaponSplash(monster, splash) }
+        lastWeaponTarget = monster
         if (ranged && monster.hp > 0 && hasRelic("gravekeeper_chain") && Random.nextDouble() < optionChance("gravekeeper_chain")) {
             pullMonsterTowardPlayer(monster)
         }
         return if (monster.hp <= 0) {
             defeatMonster(monster)
+            traits["KILL_HEAL"]?.toIntOrNull()?.let { if (Random.nextInt(100) < it) player.hp = min(player.maxHp, player.hp + 1) }
             true
         } else {
             soundPlayer.playHit(monster.definition?.code)
             message = "${monster.name}에게 ${damage} 피해"
             false
         }
+    }
+
+    private fun weaponStyle(weapon: Weapon): String = weapon.specialEffect?.substringBefore('|').orEmpty()
+
+    private fun weaponAudioCode(weapon: Weapon): String = when (weaponStyle(weapon)) {
+        "ADJACENT_SWEEP" -> "crude_sword"; "LINE_THRUST" -> "crude_spear"
+        "DOUBLE_SHOT_50" -> "crude_bow"; "KILL_PIERCE" -> "crude_gun"; else -> weapon.code
+    }
+
+    private fun weaponTraits(weapon: Weapon): Map<String, String> = weapon.specialEffect.orEmpty().split('|').drop(1)
+        .mapNotNull { token -> token.substringBefore('=', "").takeIf { it.isNotBlank() }?.let { it to token.substringAfter('=', "") } }
+        .toMap()
+
+    private fun isBossMonster(monster: UnitSprite): Boolean =
+        monster.definition?.let { it.goldDropRate >= 1.0 && it.maxHp >= 30 && !it.code.startsWith("mimic_") } == true
+
+    private fun pushMonsterAway(monster: UnitSprite) {
+        val dx = (monster.column - player.column).coerceIn(-1, 1)
+        val dy = (monster.row - player.row).coerceIn(-1, 1)
+        val next = monster.column + dx to monster.row + dy
+        if (next.first in 0 until columns && next.second in 0 until rows && !occupied(next.first, next.second)) {
+            monster.column = next.first; monster.row = next.second
+            monster.drawColumn = next.first.toFloat(); monster.drawRow = next.second.toFloat()
+        }
+    }
+
+    private fun applyWeaponSplash(primary: UnitSprite, damage: Int) {
+        monsters.filter { it !== primary && it.alive && it.hp > 0 && max(abs(it.column - primary.column), abs(it.row - primary.row)) <= 1 }
+            .forEach { nearby ->
+                nearby.hp = max(0, nearby.hp - damage)
+                showEffect("queen_burst", nearby)
+                if (nearby.hp == 0) defeatMonster(nearby, triggerAreaEffect = false)
+            }
     }
 
     private fun triggerKillAccessory(defeated: UnitSprite) {
@@ -1282,17 +1451,43 @@ class DungeonDemoView(
         if (monster.droppedLoot) return
         monster.droppedLoot = true
         val definition = monster.definition ?: return
-        var gold = if (Random.nextDouble() < definition.goldDropRate) definition.goldDrop else 0
+        var gold = if (Random.nextDouble() < adjustedMonsterDropRate(definition.goldDropRate)) definition.goldDrop else 0
         if (gold > 0 && equippedAccessory == "thief_coin_pouch" && Random.nextDouble() < optionChance("thief_coin_pouch")) gold++
         val items = linkedMapOf<String, Int>()
         monster.guaranteedChestGrade?.let { grade ->
             randomEquipmentForGrade(grade)?.let { items[it.code] = 1 }
         }
-        itemByCode.values.filter { it.dropRate > 0.0 }.forEach { item -> if (Random.nextDouble() < item.dropRate) items[item.code] = 1 }
+        itemByCode.values.filter { it.dropRate > 0.0 }.forEach { item ->
+            if (Random.nextDouble() < adjustedMonsterDropRate(item.dropRate)) items[item.code] = 1
+        }
         monsterDrops.filter { it.monsterCode == definition.code }.forEach { drop ->
-            if (Random.nextDouble() < drop.dropRate) items[drop.itemCode] = 1
+            if (Random.nextDouble() < adjustedMonsterDropRate(drop.dropRate)) items[drop.itemCode] = 1
+        }
+        if (Random.nextInt(100) < adjustedMonsterDropPercent(expandedWeaponDropPercent)) {
+            randomExpandedWeaponForFloor(monster)?.let { items[it.code] = 1 }
         }
         if (gold > 0 || items.isNotEmpty()) lootPiles += LootPile(monster.column, monster.row, gold, items)
+    }
+
+    private fun adjustedMonsterDropRate(baseRate: Double): Double =
+        if (redMoonActive) (baseRate * redMoonDropRatePercent.coerceAtLeast(0) / 100.0).coerceAtMost(1.0) else baseRate
+
+    private fun adjustedMonsterDropPercent(percent: Int): Int =
+        if (redMoonActive) (percent * redMoonDropRatePercent / 100).coerceAtMost(100) else percent.coerceIn(0, 100)
+
+    private fun randomExpandedWeaponForFloor(monster: UnitSprite): ItemDefinitionEntity? {
+        val grades = when {
+            isBossMonster(monster) && currentFloor >= 20 -> listOf("LEGENDARY", "MYTHIC")
+            isBossMonster(monster) && currentFloor >= 15 -> listOf("UNIQUE", "LEGENDARY")
+            isBossMonster(monster) && currentFloor >= 10 -> listOf("EPIC", "UNIQUE")
+            isBossMonster(monster) -> listOf("RARE")
+            currentFloor >= 21 -> listOf("UNIQUE")
+            currentFloor >= 16 -> listOf("EPIC", "UNIQUE")
+            currentFloor >= 11 -> listOf("RARE", "EPIC", "UNIQUE")
+            currentFloor >= 6 -> listOf("HIGH", "RARE")
+            else -> listOf("NORMAL", "HIGH")
+        }
+        return itemByCode.values.filter { it.code.startsWith("exp_") && it.grade in grades }.randomOrNull()
     }
 
     private fun openTreasureChest(chest: TreasureChest) {
@@ -1312,7 +1507,7 @@ class DungeonDemoView(
     private fun revealMimic(chest: TreasureChest) {
         val code = when (currentFloor) {
             in 1..5 -> "mimic_01_05"; in 6..10 -> "mimic_06_10"
-            in 11..15 -> "mimic_11_15"; else -> "mimic_16_20"
+            in 11..15 -> "mimic_11_15"; in 16..20 -> "mimic_16_20"; else -> "mimic_21_25"
         }
         val definition = monsterDefinitions.firstOrNull { it.code == code } ?: run {
             phase = Phase.PLAYER; message = "상자는 비어 있었습니다"; invalidate(); return
@@ -1367,8 +1562,8 @@ class DungeonDemoView(
             message = "전리품이 바닥에 떨어지는 중입니다"
             invalidate(); return
         }
-        if (distance(player.column, player.row, pile.column, pile.row) != 1) {
-            message = "전리품 바로 앞 칸에서 습득할 수 있습니다"
+        if (!isLootPickupRange(pile)) {
+            message = "전리품의 인접 칸이나 대각선 칸에서 습득할 수 있습니다"
             invalidate(); return
         }
         if (pile.items.isNotEmpty() && pile.openingStartedAt == 0L) {
@@ -1377,6 +1572,9 @@ class DungeonDemoView(
         }
         finishCollectLoot(pile)
     }
+
+    private fun isLootPickupRange(pile: LootPile): Boolean =
+        max(abs(player.column - pile.column), abs(player.row - pile.row)) == 1
 
     private fun startOpeningChest(pile: LootPile) {
         pile.openingStartedAt = System.currentTimeMillis()
@@ -1506,11 +1704,24 @@ class DungeonDemoView(
             tickPlayerBurn()
             message = if (player.hp > 0) "플레이어 행동 차례" else "플레이어가 쓰러졌습니다"
             tickPlayerRegeneration()
-            if (player.hp <= 0) finishPlayerDeath()
-            else persistRun()
+            if (player.hp <= 0) {
+                pendingAutoWalkContinuation = null
+                autoWalking = false
+                finishPlayerDeath()
+            } else {
+                persistRun()
+                val continuation = pendingAutoWalkContinuation
+                pendingAutoWalkContinuation = null
+                continuation?.let { post(it) }
+            }
             invalidate(); return
         }
-        val monster = living[index]; focusedMonster = monster; focusCamera(monster.column, monster.row); message = "${monster.name}의 행동"; invalidate()
+        val monster = living[index]
+        if (isSilentlyGuarding(monster)) {
+            runMonsterRound(index + 1)
+            return
+        }
+        focusedMonster = monster; focusCamera(monster.column, monster.row); message = "${monster.name}의 행동"; invalidate()
         postDelayed({
             val actionDuration = performMonsterAction(monster)
             invalidate()
@@ -1518,6 +1729,14 @@ class DungeonDemoView(
                 if (player.hp <= 0) finishPlayerDeath() else runMonsterRound(index + 1)
             }, combatDuration(actionDuration))
         }, combatDuration(420L))
+    }
+
+    private fun isSilentlyGuarding(monster: UnitSprite): Boolean {
+        if (monster.alerted) return false
+        val definition = monster.definition ?: return false
+        val dist = distance(monster.column, monster.row, player.column, player.row)
+        return dist > definition.sensitivity ||
+            !hasLineOfSight(monster.column, monster.row, player.column, player.row)
     }
 
     private fun performMonsterAction(monster: UnitSprite): Long {
@@ -1528,6 +1747,9 @@ class DungeonDemoView(
                 hasLineOfSight(monster.column, monster.row, player.column, player.row)
             if (seesPlayer) {
                 monster.alerted = true
+                monster.alertIndicatorUntil = System.currentTimeMillis() + combatDuration(1_800L)
+                focusedMonster = monster
+                focusCamera(monster.column, monster.row)
                 message = "${monster.name}이 플레이어를 발견했습니다"
             } else {
                 message = "${monster.name}이 주변을 경계합니다"
@@ -1554,6 +1776,7 @@ class DungeonDemoView(
             alertMonstersFromCombat(monster)
             var damage = definition.attackPower
             if (definition.code in setOf("plague_bell_keeper", "furnace_saint") && monsterRoundSequence % 3 == 0) damage += 2
+            if (redMoonActive) damage = (damage * redMoonMonsterAttackPercent.coerceAtLeast(0) + 99) / 100
             if (definition.code == "ash_arbalist") monster.attackCooldown = 1
             soundPlayer.playAttack(definition.code)
             playAction(monster, 2, 760L)
@@ -1749,6 +1972,8 @@ class DungeonDemoView(
     }
 
     private fun finishPlayerDeath() {
+        pendingAutoWalkContinuation = null
+        autoWalking = false
         focusedMonster = null
         player.dying = false
         player.actionRow = 3
@@ -1813,9 +2038,10 @@ class DungeonDemoView(
         val minimum = monsterCountMin.coerceAtLeast(1)
         val maximum = monsterCountMax.coerceAtLeast(minimum)
         val targetCount = random.nextInt(minimum, maximum + 1)
-        val selectedDefinitions = baseDefinitions.take(targetCount).toMutableList()
-        val regularPool = baseDefinitions.filterNot { it.goldDropRate >= 1.0 && it.maxHp >= 30 }
-            .ifEmpty { baseDefinitions }
+        val bossPool = baseDefinitions.distinctBy { it.code }.filter { it.goldDropRate >= 1.0 && it.maxHp >= 30 && !it.code.startsWith("mimic_") }
+        val regularPool = baseDefinitions.distinctBy { it.code }.filterNot { it in bossPool }.ifEmpty { baseDefinitions }
+        val selectedDefinitions = mutableListOf<MonsterDefinitionEntity>()
+        if (bossPool.isNotEmpty()) selectedDefinitions += bossPool[random.nextInt(bossPool.size)]
         while (selectedDefinitions.size < targetCount) {
             selectedDefinitions += regularPool[random.nextInt(regularPool.size)]
         }
@@ -1918,7 +2144,8 @@ class DungeonDemoView(
         in 1..5 -> when { roll < 70 -> "NORMAL"; roll < 95 -> "HIGH"; else -> "RARE" }
         in 6..10 -> when { roll < 55 -> "HIGH"; roll < 90 -> "RARE"; else -> "EPIC" }
         in 11..15 -> when { roll < 55 -> "RARE"; roll < 90 -> "EPIC"; else -> "UNIQUE" }
-        else -> when { roll < 55 -> "EPIC"; roll < 85 -> "UNIQUE"; roll < 97 -> "LEGENDARY"; else -> "MYTHIC" }
+        in 16..20 -> when { roll < 55 -> "EPIC"; roll < 85 -> "UNIQUE"; roll < 97 -> "LEGENDARY"; else -> "MYTHIC" }
+        else -> when { roll < 25 -> "EPIC"; roll < 70 -> "UNIQUE"; roll < 90 -> "LEGENDARY"; else -> "MYTHIC" }
     }
 
     private fun occupiedCells(obj: HealingObject): List<Pair<Int, Int>> = buildList {
@@ -2018,7 +2245,7 @@ class DungeonDemoView(
     }
 
     private fun drawDepthSortedScene(canvas: Canvas, area: RectF) {
-        val units = monsters.filter { it.alive } + player
+        val units = monsters.filter { it.alive } + listOfNotNull(player.takeIf { playerMoveAnimation == null })
         val firstRow = floor(cameraRow).toInt() - 1
         val lastRow = min(rows - 1, (cameraRow + visibleRows).toInt() + 1)
         for (row in firstRow..lastRow) {
@@ -2029,6 +2256,7 @@ class DungeonDemoView(
                 .toList().sortedBy { it.first.first }
                 .forEach { (cell, kind) -> drawRaisedObstacle(canvas, area, cell.first, cell.second, kind) }
         }
+        if (playerMoveAnimation != null) drawUnit(canvas, area, player)
     }
 
     private fun drawRaisedObstacle(canvas: Canvas, area: RectF, column: Int, row: Int, kind: ObstacleKind) {
@@ -2055,6 +2283,8 @@ class DungeonDemoView(
     private fun drawLootPile(canvas: Canvas, area: RectF, pile: LootPile) {
         val rect = tileRect(area, pile.column, pile.row)
         if (!RectF.intersects(rect, area)) return
+        paint.alpha = 255
+        paint.isDither = true
         val elapsed = (System.currentTimeMillis() - pile.droppedAt).coerceAtLeast(0L)
         val progress = (elapsed.toFloat() / LOOT_DROP_DURATION_MS).coerceIn(0f, 1f)
         val airborne = progress < 1f
@@ -2065,21 +2295,27 @@ class DungeonDemoView(
         } else 0f
         val itemOffsetX = if (airborne) -rect.width() * .16f * progress else 0f
         val goldOffsetX = if (airborne) rect.width() * .2f * progress else 0f
-        val tileSurfaceLift = -rect.height() * .18f
+        val tileSurfaceLift = -rect.height() * .36f
         val animatedOffsetY = dropOffsetY + landingBounce + tileSurfaceLift
         val highestGrade = highestLootGrade(pile)
         paint.color = gradeGlowColor(highestGrade)
         canvas.drawOval(
-            RectF(rect.centerX() - rect.width() * .31f, rect.bottom - rect.height() * .36f,
-                rect.centerX() + rect.width() * .31f, rect.bottom - rect.height() * .20f),
+            RectF(rect.centerX() - rect.width() * .48f, rect.bottom - rect.height() * .48f,
+                rect.centerX() + rect.width() * .48f, rect.bottom - rect.height() * .18f),
             paint
         )
         if (pile.items.isNotEmpty()) {
             val openingElapsed = if (pile.openingStartedAt > 0L) elapsedSince(pile.openingStartedAt) else 0L
             val opening = pile.openingStartedAt > 0L
-            val size = min(rect.width(), rect.height()) * .82f
-            val centerX = (if (pile.gold > 0) rect.centerX() - rect.width() * .08f else rect.centerX()) + itemOffsetX
-            val centerY = rect.centerY() + animatedOffsetY
+            val size = min(rect.width(), rect.height()) * 1.22f
+            val centerX = (if (pile.gold > 0) rect.centerX() - rect.width() * .13f else rect.centerX()) + itemOffsetX
+            val centerY = rect.centerY() + animatedOffsetY - rect.height() * .05f
+            paint.color = 0xB0000000.toInt()
+            canvas.drawOval(RectF(
+                centerX - size * .48f, centerY + size * .19f,
+                centerX + size * .48f, centerY + size * .42f
+            ), paint)
+            paint.setShadowLayer(dp(8f), 0f, dp(3f), gradeSolidColor(highestGrade))
             if (opening) {
                 val frameWidth = chestOpeningSheet.width / 4
                 val frame = (openingElapsed / (CHEST_OPEN_DURATION_MS / 4)).toInt().coerceIn(0, 3)
@@ -2101,21 +2337,33 @@ class DungeonDemoView(
                 val chest = lootBitmaps[highestGrade] ?: lootBitmaps.getValue("NORMAL")
                 canvas.drawBitmap(chest, null, RectF(centerX - size / 2, centerY - size / 2, centerX + size / 2, centerY + size / 2), paint)
             }
+            paint.clearShadowLayer()
+            paint.alpha = 255
         }
         if (pile.gold > 0) {
             val gold = lootBitmaps.getValue(if (pile.gold >= 10) "gold_ingot" else "gold_coins")
-            val size = min(rect.width(), rect.height()) * if (pile.items.isEmpty()) .72f else .42f
-            val centerX = (if (pile.items.isEmpty()) rect.centerX() else rect.right - size * .42f) + goldOffsetX
-            val centerY = (if (pile.items.isEmpty()) rect.centerY() else rect.bottom - size * .42f) + animatedOffsetY
+            val size = min(rect.width(), rect.height()) * if (pile.items.isEmpty()) 1.05f else .68f
+            val centerX = (if (pile.items.isEmpty()) rect.centerX() else rect.right - size * .36f) + goldOffsetX
+            val centerY = (if (pile.items.isEmpty()) rect.centerY() else rect.bottom - size * .34f) + animatedOffsetY
+            paint.color = 0xB0000000.toInt()
+            canvas.drawOval(RectF(centerX - size * .43f, centerY + size * .18f, centerX + size * .43f, centerY + size * .39f), paint)
+            paint.setShadowLayer(dp(7f), 0f, dp(3f), 0xFFFFD65A.toInt())
             canvas.drawBitmap(gold, null, RectF(centerX - size / 2, centerY - size / 2, centerX + size / 2, centerY + size / 2), paint)
-            textPaint.color = Color.WHITE; textPaint.textSize = dp(10f); textPaint.textAlign = Paint.Align.CENTER
-            canvas.drawText("${pile.gold}G", centerX, centerY + size * .46f, textPaint)
+            paint.clearShadowLayer()
+            textPaint.color = Color.WHITE; textPaint.textSize = dp(if (pile.items.isEmpty()) 14f else 12f); textPaint.textAlign = Paint.Align.CENTER
+            textPaint.typeface = Typeface.DEFAULT_BOLD
+            textPaint.setShadowLayer(dp(3f), 0f, dp(2f), Color.BLACK)
+            canvas.drawText("${pile.gold}G", centerX, centerY + size * .48f, textPaint)
+            textPaint.clearShadowLayer(); textPaint.typeface = Typeface.DEFAULT
             textPaint.textAlign = Paint.Align.LEFT
         }
         if (pile.items.size > 1) {
-            textPaint.color = Color.WHITE; textPaint.textSize = dp(12f); textPaint.textAlign = Paint.Align.RIGHT
-            canvas.drawText("+${pile.items.size - 1}", rect.right - dp(5f), rect.top + dp(15f), textPaint); textPaint.textAlign = Paint.Align.LEFT
+            textPaint.color = Color.WHITE; textPaint.textSize = dp(14f); textPaint.textAlign = Paint.Align.RIGHT
+            textPaint.typeface = Typeface.DEFAULT_BOLD; textPaint.setShadowLayer(dp(3f), 0f, dp(2f), Color.BLACK)
+            canvas.drawText("+${pile.items.size - 1}", rect.right + dp(4f), rect.top + dp(12f), textPaint)
+            textPaint.clearShadowLayer(); textPaint.typeface = Typeface.DEFAULT; textPaint.textAlign = Paint.Align.LEFT
         }
+        paint.alpha = 255
     }
 
     private fun highestLootGrade(pile: LootPile): String {
@@ -2146,7 +2394,7 @@ class DungeonDemoView(
     private fun drawStairs(canvas: Canvas, area: RectF) {
         val rect = tileRect(area, stairsColumn, stairsRow)
         if (!RectF.intersects(rect, area)) return
-        val unlocked = monsters.none { it.alive }
+        val unlocked = true
         val stairTarget = RectF(
             rect.left - rect.width() * .18f,
             rect.top - rect.height() * .28f,
@@ -2169,7 +2417,7 @@ class DungeonDemoView(
         paint.style = Paint.Style.STROKE; paint.strokeWidth = dp(2f)
         canvas.drawRoundRect(rect, dp(5f), dp(5f), paint); paint.style = Paint.Style.FILL
         textPaint.color = Color.WHITE; textPaint.textSize = dp(11f); textPaint.textAlign = Paint.Align.CENTER
-        canvas.drawText(if (unlocked) "계단 이동" else "봉인", rect.centerX(), rect.bottom - dp(6f), textPaint); textPaint.textAlign = Paint.Align.LEFT
+        canvas.drawText("계단 이동", rect.centerX(), rect.bottom - dp(6f), textPaint); textPaint.textAlign = Paint.Align.LEFT
     }
 
     private fun drawUnit(canvas: Canvas, area: RectF, unit: UnitSprite) {
@@ -2204,11 +2452,31 @@ class DungeonDemoView(
         if (unit !== player) {
             paint.color = 0xCC17110E.toInt(); canvas.drawRect(centerX - tw * .3f, bottom - targetHeight - dp(7f), centerX + tw * .3f, bottom - targetHeight - dp(2f), paint)
             paint.color = 0xFFB83A32.toInt(); canvas.drawRect(centerX - tw * .3f, bottom - targetHeight - dp(7f), centerX - tw * .3f + tw * .6f * unit.hp / unit.maxHp, bottom - targetHeight - dp(2f), paint)
+            if (now < unit.alertIndicatorUntil) drawMonsterAlertIndicator(canvas, target, now, unit.alertIndicatorUntil)
         }
     }
 
+    private fun drawMonsterAlertIndicator(canvas: Canvas, target: RectF, now: Long, until: Long) {
+        val remaining = (until - now).coerceAtLeast(0L)
+        val pulse = 1f + sin(now / 70f) * .10f
+        val alpha = if (remaining < 180L) (remaining / 180f * 255).toInt() else 255
+        textPaint.textAlign = Paint.Align.CENTER
+        textPaint.typeface = Typeface.DEFAULT_BOLD
+        textPaint.textSize = dp(22f) * pulse
+        textPaint.color = Color.BLACK
+        textPaint.alpha = alpha
+        canvas.drawText("!!!", target.centerX() + dp(2f), target.top - dp(10f) + dp(2f), textPaint)
+        textPaint.setShadowLayer(dp(4f), 0f, dp(2f), Color.BLACK)
+        textPaint.color = 0xFFFF4D42.toInt()
+        canvas.drawText("!!!", target.centerX(), target.top - dp(10f), textPaint)
+        textPaint.clearShadowLayer()
+        textPaint.alpha = 255
+        textPaint.textAlign = Paint.Align.LEFT
+        textPaint.typeface = Typeface.DEFAULT
+    }
+
     private fun stablePlayerEquipmentFrame(row: Int, rawFrame: Int): Int {
-        if (equippedWeapon?.code != "crude_bow") return rawFrame
+        if (equippedWeapon?.let(::weaponStyle) != "DOUBLE_SHOT_50") return rawFrame
         val helmetEquipped = equippedArmorByCategory["HELMET"] != null
         return when {
             helmetEquipped && row == 0 -> intArrayOf(0, 1, 3, 1)[rawFrame]
@@ -2402,11 +2670,12 @@ class DungeonDemoView(
         return true
     }
     private fun inWeaponRange(column: Int, row: Int) = equippedWeapon?.let { weapon ->
-        val tileDistance = if (weapon.specialEffect == "ADJACENT_SWEEP") {
+        val style = weaponStyle(weapon)
+        val tileDistance = if (style == "ADJACENT_SWEEP") {
             max(abs(player.column - column), abs(player.row - row))
         } else distance(player.column, player.row, column, row)
         val inRange = tileDistance in 1..weapon.range
-        inRange && (weapon.specialEffect != "LINE_THRUST" || column == player.column || row == player.row)
+        inRange && (style != "LINE_THRUST" || column == player.column || row == player.row)
     } == true
     private fun isAdjacent(column: Int, row: Int) = distance(player.column, player.row, column, row) == 1
     private fun distance(c1: Int, r1: Int, c2: Int, r2: Int) = abs(c1 - c2) + abs(r1 - r2)
@@ -2589,7 +2858,9 @@ class DungeonDemoView(
     private fun activeBackground(): Bitmap = when (currentFloor) {
         in 1..5 -> upperDungeonBackground
         in 6..10 -> floodedCatacombBackground
-        else -> ashenFurnaceBackground
+        in 11..15 -> ashenFurnaceBackground
+        in 16..20 -> demonAbyssBackground
+        else -> abyssalSanctuaryBackground
     }
     private fun isConsumable(code: String) = itemByCode[code]?.isConsumable == true
     private fun dungeonArea() = RectF(width * .025f, dp(62f), width * .615f, height - dp(116f))
@@ -2599,5 +2870,14 @@ class DungeonDemoView(
     }
     private fun drawTileFill(canvas: Canvas, rect: RectF, color: Int) { paint.color = color; paint.style = Paint.Style.FILL; canvas.drawRect(rect, paint) }
     private fun bitmap(path: String): Bitmap = context.assets.open(path).use(BitmapFactory::decodeStream)
+    private fun bitmap(path: String, targetSize: Int): Bitmap {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.assets.open(path).use { BitmapFactory.decodeStream(it, null, bounds) }
+        var sample = 1
+        while (max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= targetSize) sample *= 2
+        return context.assets.open(path).use {
+            BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
+        } ?: error("이미지 에셋을 읽을 수 없습니다: $path")
+    }
     private fun dp(value: Float) = value * resources.displayMetrics.density
 }

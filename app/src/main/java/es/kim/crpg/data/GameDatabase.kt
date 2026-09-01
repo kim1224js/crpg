@@ -6,6 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import es.kim.crpg.game.catalog.ExpandedWeaponCatalog
 
 @Database(
     entities = [
@@ -15,7 +16,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         MonsterFloorSpawnEntity::class, DungeonInteractableDefinitionEntity::class,
         DungeonInteractableSpawnEntity::class, DungeonRunEntity::class
     ],
-    version = 34,
+    version = 42,
     exportSchema = true
 )
 abstract class GameDatabase : RoomDatabase() {
@@ -268,6 +269,46 @@ abstract class GameDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_34_35 = object : Migration(34, 35) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("UPDATE item_definition SET storeType = 'MERCHANT_GENERAL' WHERE code IN ('gacha_normal','gacha_high')")
+                db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('general_store_gacha_price_multiplier',2,NULL,NULL)")
+            }
+        }
+
+        private val MIGRATION_35_36 = object : Migration(35, 36) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE login_profile ADD COLUMN unlockedDungeonStartFloor INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("UPDATE login_profile SET unlockedDungeonStartFloor = 10 WHERE highestFloor >= 11")
+            }
+        }
+
+        private val MIGRATION_36_37 = object : Migration(36, 37) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                seedRedMoonRules(db)
+            }
+        }
+
+        private val MIGRATION_37_38 = object : Migration(37, 38) {
+            override fun migrate(db: SupportSQLiteDatabase) = seedExpandedWeapons(db)
+        }
+
+        private val MIGRATION_38_39 = object : Migration(38, 39) {
+            override fun migrate(db: SupportSQLiteDatabase) = seedExpandedWeapons(db)
+        }
+
+        private val MIGRATION_39_40 = object : Migration(39, 40) {
+            override fun migrate(db: SupportSQLiteDatabase) = seedExpandedWeapons(db)
+        }
+
+        private val MIGRATION_40_41 = object : Migration(40, 41) {
+            override fun migrate(db: SupportSQLiteDatabase) = seedExpandedWeapons(db)
+        }
+
+        private val MIGRATION_41_42 = object : Migration(41, 42) {
+            override fun migrate(db: SupportSQLiteDatabase) = seedFloorsSixteenToTwentyFive(db)
+        }
+
         private val CREATE_AND_SEED = object : Callback() {
             override fun onCreate(db: SupportSQLiteDatabase) {
                 super.onCreate(db)
@@ -302,9 +343,11 @@ abstract class GameDatabase : RoomDatabase() {
             ).forEach { db.execSQL(itemSql, it) }
 
             seedRareMonsterItems(db)
+            seedExpandedWeapons(db)
             seedTravelingMerchantBoxes(db)
             seedFloorsSixToTen(db)
             seedFloorsElevenToFifteen(db)
+            seedFloorsSixteenToTwentyFive(db)
             seedDungeonInteractables(db)
             seedDungeonChestRules(db)
 
@@ -336,15 +379,40 @@ abstract class GameDatabase : RoomDatabase() {
                 arrayOf("dungeon_monster_count_min", 5, null, null),
                 arrayOf("dungeon_monster_count_max", 10, null, null),
                 arrayOf("return_stone_combat_lock_floor", 11, null, null),
-                arrayOf("traveling_merchant_interval_days", 5, null, null)
+                arrayOf("traveling_merchant_interval_days", 5, null, null),
+                arrayOf("general_store_gacha_price_multiplier", 2, null, null),
+                arrayOf("red_moon_interval_days", 10, null, null),
+                arrayOf("red_moon_monster_attack_percent", 150, null, null),
+                arrayOf("red_moon_drop_rate_percent", 200, null, null),
+                arrayOf("red_moon_return_floor_interval", 5, null, null)
             ).forEach { db.execSQL(configSql, it) }
+        }
+
+        private fun seedRedMoonRules(db: SupportSQLiteDatabase) {
+            db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('red_moon_interval_days',10,NULL,NULL)")
+            db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('red_moon_monster_attack_percent',150,NULL,NULL)")
+            db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('red_moon_drop_rate_percent',200,NULL,NULL)")
+            db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('red_moon_return_floor_interval',5,NULL,NULL)")
+        }
+
+        private fun seedExpandedWeapons(db: SupportSQLiteDatabase) {
+            val sql = "INSERT OR REPLACE INTO item_definition VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+            ExpandedWeaponCatalog.all().forEach { item ->
+                db.execSQL(sql, arrayOf<Any?>(
+                    item.code, item.name, item.category, item.grade, item.storeType, item.basePrice,
+                    item.unitsPerPurchase, item.assetPath, if (item.isConsumable) 1 else 0, item.maxStack,
+                    item.attackPower, item.attackTurnCost, item.attackRange, item.healthBonus, item.detail,
+                    item.specialEffect, item.dropRate, item.playerSheetPath, item.sortOrder
+                ))
+            }
+            db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('expanded_weapon_drop_percent',8,NULL,NULL)")
         }
 
         private fun seedTravelingMerchantBoxes(db: SupportSQLiteDatabase) {
             val itemSql = "INSERT OR REPLACE INTO item_definition VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
             listOf<Array<Any?>>(
-                arrayOf("gacha_normal", "낡은 뽑기상자", "CONSUMABLE", "NORMAL", "MERCHANT", 100, 1, "ui/dungeon/loot/chest_normal.png", 1, 99, 0, 0, 0, 0, "당첨 30% · 당첨 시 골드 또는 장비", "GACHA_BOX_NORMAL", 0.0, null, 300),
-                arrayOf("gacha_high", "고급 뽑기상자", "CONSUMABLE", "HIGH", "MERCHANT", 200, 1, "ui/dungeon/loot/chest_high.png", 1, 99, 0, 0, 0, 0, "당첨 30% · 당첨 시 골드 또는 고급 이상 장비", "GACHA_BOX_HIGH", 0.0, null, 301),
+                arrayOf("gacha_normal", "낡은 뽑기상자", "CONSUMABLE", "NORMAL", "MERCHANT_GENERAL", 100, 1, "ui/dungeon/loot/chest_normal.png", 1, 99, 0, 0, 0, 0, "당첨 30% · 당첨 시 골드 또는 장비", "GACHA_BOX_NORMAL", 0.0, null, 300),
+                arrayOf("gacha_high", "고급 뽑기상자", "CONSUMABLE", "HIGH", "MERCHANT_GENERAL", 200, 1, "ui/dungeon/loot/chest_high.png", 1, 99, 0, 0, 0, 0, "당첨 30% · 당첨 시 골드 또는 고급 이상 장비", "GACHA_BOX_HIGH", 0.0, null, 301),
                 arrayOf("gacha_rare", "레어 뽑기상자", "CONSUMABLE", "RARE", "MERCHANT", 400, 1, "ui/dungeon/loot/chest_rare.png", 1, 99, 0, 0, 0, 0, "당첨 30% · 당첨 시 골드 또는 레어 이상 장비", "GACHA_BOX_RARE", 0.0, null, 302),
                 arrayOf("gacha_epic", "에픽 뽑기상자", "CONSUMABLE", "EPIC", "MERCHANT", 800, 1, "ui/dungeon/loot/chest_epic.png", 1, 99, 0, 0, 0, 0, "당첨 30% · 당첨 시 골드 또는 에픽 이상 장비", "GACHA_BOX_EPIC", 0.0, null, 303),
                 arrayOf("gacha_unique", "유니크 뽑기상자", "CONSUMABLE", "UNIQUE", "MERCHANT", 1600, 1, "ui/dungeon/loot/chest_unique.png", 1, 99, 0, 0, 0, 0, "당첨 30% · 당첨 시 골드 또는 유니크 장비", "GACHA_BOX_UNIQUE", 0.0, null, 304),
@@ -478,6 +546,53 @@ abstract class GameDatabase : RoomDatabase() {
             floors.forEach { (floor, spawns) -> spawns.forEachIndexed { index, entry -> db.execSQL(spawnSql, arrayOf<Any?>(floor, index, entry.first, entry.second.first, entry.second.second)) } }
         }
 
+        private fun seedFloorsSixteenToTwentyFive(db: SupportSQLiteDatabase) {
+            val monsterSql = "INSERT OR REPLACE INTO monster_definition VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
+            listOf<Array<Any?>>(
+                arrayOf("rift_hound", "균열 들개", 20, 5, 1, 1, 2, 1, 5, .70, "ui/dungeon/monsters/floors_21_25/void_hound_animation_sheet.png", 7, 50),
+                arrayOf("infernal_lancer", "지옥 창병", 24, 6, 3, 3, 1, 1, 6, .70, "ui/dungeon/monsters/floors_21_25/abyss_lancer_animation_sheet.png", 7, 51),
+                arrayOf("void_oracle", "공허 예언자", 20, 5, 5, 5, 1, 1, 5, .70, "ui/dungeon/monsters/floors_21_25/starved_oracle_animation_sheet.png", 9, 52),
+                arrayOf("hellshot_apostle", "화약 사도", 22, 7, 5, 5, 1, 1, 6, .70, "ui/dungeon/monsters/floors_21_25/blackpowder_apostle_animation_sheet.png", 8, 53),
+                arrayOf("eclipse_archon_20", "일식의 집정관", 55, 8, 4, 4, 1, 1, 25, 1.0, "ui/dungeon/monsters/floors_21_25/eclipse_archon_animation_sheet.png", 11, 54),
+                arrayOf("abyss_maw_20", "심연의 아귀", 65, 9, 2, 2, 2, 1, 25, 1.0, "ui/dungeon/monsters/floors_21_25/abyss_maw_animation_sheet.png", 10, 55),
+                arrayOf("void_hound", "공허 사냥개", 28, 7, 1, 1, 2, 1, 8, .70, "ui/dungeon/monsters/floors_21_25/void_hound_animation_sheet.png", 8, 60),
+                arrayOf("abyss_lancer", "심연 창기병", 32, 8, 3, 3, 1, 1, 9, .70, "ui/dungeon/monsters/floors_21_25/abyss_lancer_animation_sheet.png", 8, 61),
+                arrayOf("starved_oracle", "굶주린 신탁", 26, 7, 6, 6, 1, 1, 8, .70, "ui/dungeon/monsters/floors_21_25/starved_oracle_animation_sheet.png", 10, 62),
+                arrayOf("blackpowder_apostle", "흑화약 사도", 28, 9, 6, 6, 1, 1, 9, .70, "ui/dungeon/monsters/floors_21_25/blackpowder_apostle_animation_sheet.png", 9, 63),
+                arrayOf("eclipse_archon_25", "검은 태양의 집정관", 80, 10, 5, 5, 1, 1, 50, 1.0, "ui/dungeon/monsters/floors_21_25/eclipse_archon_animation_sheet.png", 12, 64),
+                arrayOf("abyss_maw_25", "별을 삼키는 아귀", 95, 11, 2, 2, 2, 1, 50, 1.0, "ui/dungeon/monsters/floors_21_25/abyss_maw_animation_sheet.png", 11, 65),
+                arrayOf("mimic_21_25", "성소의 미믹", 42, 9, 2, 2, 2, 1, 40, 1.0, "ui/dungeon/monsters/mimic/mimic_animation_sheet.png", 9, 66)
+            ).forEach { db.execSQL(monsterSql, it) }
+
+            val spawnSql = "INSERT OR REPLACE INTO monster_floor_spawn VALUES (?,?,?,?,?)"
+            val lowerPool = listOf("rift_hound", "infernal_lancer", "void_oracle", "hellshot_apostle")
+            val upperPool = listOf("void_hound", "abyss_lancer", "starved_oracle", "blackpowder_apostle")
+            val positions = listOf(7 to 3, 12 to 8, 17 to 4, 21 to 8)
+            fun seedFloor(floor: Int, pool: List<String>, bosses: List<String> = emptyList()) {
+                (pool + bosses).forEachIndexed { index, code ->
+                    val position = positions[index % positions.size]
+                    db.execSQL(spawnSql, arrayOf<Any?>(floor, index, code, position.first, position.second))
+                }
+            }
+            (16..19).forEach { seedFloor(it, lowerPool) }
+            seedFloor(20, lowerPool, listOf("eclipse_archon_20", "abyss_maw_20"))
+            (21..24).forEach { seedFloor(it, upperPool) }
+            seedFloor(25, upperPool, listOf("eclipse_archon_25", "abyss_maw_25"))
+
+            val dropSql = "INSERT OR REPLACE INTO monster_drop VALUES (?,?,?)"
+            listOf<Array<Any?>>(
+                arrayOf("rift_hound", "exp_epic_sword_01", .08), arrayOf("infernal_lancer", "exp_epic_spear_02", .08),
+                arrayOf("void_oracle", "exp_epic_bow_03", .08), arrayOf("hellshot_apostle", "exp_epic_gun_00", .08),
+                arrayOf("void_hound", "exp_unique_sword_00", .08), arrayOf("abyss_lancer", "exp_unique_spear_01", .08),
+                arrayOf("starved_oracle", "exp_unique_bow_02", .08), arrayOf("blackpowder_apostle", "exp_unique_gun_03", .08),
+                arrayOf("eclipse_archon_20", "exp_legendary_spear_00", .15), arrayOf("eclipse_archon_20", "exp_mythic_bow_00", .10),
+                arrayOf("abyss_maw_20", "exp_legendary_sword_03", .15), arrayOf("abyss_maw_20", "exp_mythic_gun_01", .10),
+                arrayOf("eclipse_archon_25", "exp_legendary_bow_01", .18), arrayOf("eclipse_archon_25", "exp_mythic_spear_03", .12),
+                arrayOf("abyss_maw_25", "exp_legendary_gun_02", .18), arrayOf("abyss_maw_25", "exp_mythic_sword_02", .12)
+            ).forEach { db.execSQL(dropSql, it) }
+
+        }
+
         private fun seedDungeonChestRules(db: SupportSQLiteDatabase) {
             db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('dungeon_chest_spawn_percent',25,NULL,NULL)")
             db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('dungeon_chest_mimic_percent',25,NULL,NULL)")
@@ -499,7 +614,7 @@ abstract class GameDatabase : RoomDatabase() {
                     context.applicationContext,
                     GameDatabase::class.java,
                     "crpg_game.db"
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34).addCallback(CREATE_AND_SEED).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42).addCallback(CREATE_AND_SEED).build().also { instance = it }
             }
         }
     }

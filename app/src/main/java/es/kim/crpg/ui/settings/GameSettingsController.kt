@@ -16,9 +16,9 @@ import android.widget.TextView
 import es.kim.crpg.core.audio.GameAudioSettings
 import es.kim.crpg.data.GameConfigEntity
 import es.kim.crpg.data.GameDatabase
-import es.kim.crpg.ui.common.AntiqueGameDialog
 import es.kim.crpg.ui.common.GameUiTheme
 import es.kim.crpg.ui.common.gameScrollView
+import es.kim.crpg.ui.settings.guide.GameGuideController
 import java.util.concurrent.Executor
 
 class GameSettingsController(
@@ -27,6 +27,7 @@ class GameSettingsController(
     private val executor: Executor,
     private val onMusicSettingChanged: () -> Unit
 ) {
+    private val guideController by lazy { GameGuideController(activity, overlay, database, executor) }
     val overlay = FrameLayout(activity).apply {
         isClickable = false
         elevation = dp(100).toFloat()
@@ -99,7 +100,7 @@ class GameSettingsController(
         content.addView(TextView(activity).apply {
             text = "게임 가이드"; setTextColor(Color.WHITE); textSize = 15f; typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER; isClickable = true; background = panel(0xFF5B2418.toInt(), GameUiTheme.GOLD, 7f, 2)
-            setOnClickListener { showGuide() }
+            setOnClickListener { guideController.show() }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)).apply { topMargin = dp(14) })
 
         blocker.addView(activity.gameScrollView(content), FrameLayout.LayoutParams(
@@ -126,18 +127,6 @@ class GameSettingsController(
         gravity = Gravity.CENTER_VERTICAL; thumbTintList = ColorStateList.valueOf(GameUiTheme.GOLD)
         trackTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf(0x99725322.toInt(), 0x664D443B))
         setOnCheckedChangeListener { _, enabled -> changed(enabled) }
-    }
-
-    private fun showGuide() {
-        val files = listOf("01_COMMON_CONFIG.txt", "02_GAME_FLOW.txt", "03_VILLAGE.txt", "04_ITEMS.txt", "05_COMBAT.txt", "06_DUNGEON.txt", "07_MONSTERS.txt", "09_UI_AUDIO.txt", "10_ITEM_VALUES.txt", "11_GACHA_BOXES.txt")
-        val body = files.mapNotNull { name ->
-            runCatching { activity.assets.open("game_book/$name").bufferedReader().use { it.readText() } }.getOrNull()
-        }.joinToString("\n\n━━━━━━━━━━━━━━━━━━━━\n\n")
-        AntiqueGameDialog.show(activity, AntiqueGameDialog.Config(
-            title = "게임 가이드", subtitle = "마을 · 아이템 · 전투 · 던전 규칙", body = body,
-            actions = listOf(AntiqueGameDialog.Action("닫기", primary = true)),
-            scrollHint = "↕ 위아래로 움직여 전체 규칙 확인", bodyHeightDp = 420
-        ))
     }
 
     private fun panel(fill: Int, stroke: Int, radius: Float, width: Int) = GradientDrawable().apply {
