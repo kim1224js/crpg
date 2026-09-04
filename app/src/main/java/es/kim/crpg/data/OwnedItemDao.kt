@@ -28,6 +28,12 @@ interface OwnedItemDao {
     @Query("UPDATE owned_item SET container = :container, slotIndex = :slotIndex WHERE id = :id")
     fun updateLocation(id: Long, container: String, slotIndex: Int)
 
+    @Query("UPDATE owned_item SET characterId = :characterId, container = 'STORAGE', slotIndex = :slotIndex, isEquipped = 0 WHERE id = :id")
+    fun claimEstateItem(id: Long, characterId: Long, slotIndex: Int)
+
+    @Query("UPDATE owned_item SET container = 'ESTATE', slotIndex = :slotIndex, isEquipped = 0 WHERE id = :id")
+    fun preserveAsEstate(id: Long, slotIndex: Int)
+
     @Query("UPDATE owned_item SET isEquipped = 0 WHERE ownerId = :ownerId")
     fun clearEquipped(ownerId: Long)
 

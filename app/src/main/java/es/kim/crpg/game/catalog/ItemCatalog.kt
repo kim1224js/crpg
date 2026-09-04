@@ -53,6 +53,9 @@ object ItemCatalog {
             if (item.attackRange > 0) add("사거리  ${item.attackRange}칸")
             if (item.healthBonus > 0) add("최대 체력  +${item.healthBonus}")
             if (item.category == "BOOTS") add("기본 이동  1칸")
+            if (item.category in setOf("ARMOR", "HELMET", "BOOTS") && item.grade in setOf("UNIQUE", "LEGENDARY", "MYTHIC")) {
+                add("등급 방호  피해 10 이상을 50% 경감")
+            }
         }
         val categoryName = when (item.category) {
             "WEAPON" -> "무기"; "ARMOR" -> "방어구 · 갑옷"; "HELMET" -> "방어구 · 투구"
@@ -65,6 +68,8 @@ object ItemCatalog {
             "KILL_PIERCE" -> "처치 관통: 앞의 적이 죽으면 뒤의 적에게 탄환 관통"
             "DOUBLE_SHOT_50" -> "연속 사격: 50% 확률로 같은 대상에게 화살을 한 발 더 발사"
             "BLOCK_CHANCE_30" -> "방어: 몬스터 공격을 30% 확률로 완전히 무효화"
+            "MELEE_BLOCK_30" -> "일반 방어: 인접한 적의 공격을 30% 확률로 완전히 무효화"
+            "RANGED_BLOCK_30" -> "원거리 방어: 2칸 이상 떨어진 적의 공격을 30% 확률로 완전히 무효화"
             "RANGED_ROOT_20" -> "원거리 적중 시 20% 확률로 1턴 속박"
             "RANGED_POISON_SHOT_30" -> "원거리 공격 시 30% 확률로 피해 2 독침 추가 발사"
             "DODGE_COUNTER_30" -> "30% 확률로 공격을 회피하고 피해 2 반격"

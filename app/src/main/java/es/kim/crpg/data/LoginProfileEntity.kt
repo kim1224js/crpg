@@ -18,5 +18,6 @@ data class LoginProfileEntity(
     val pendingEstateLossCount: Int = 0,
     val pendingEstateKeptNames: String? = null,
     val lastMerchantFreeDay: Int = 0,
-    val merchantFreeClaimMask: Int = 0
+    val merchantFreeClaimMask: Int = 0,
+    val activeCharacterId: Long = id
 )

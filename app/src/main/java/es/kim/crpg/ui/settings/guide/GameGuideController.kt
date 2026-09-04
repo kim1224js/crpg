@@ -8,6 +8,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -80,10 +81,10 @@ class GameGuideController(
                 }, activity.matchParentParams())
                 loadEquipment { loaded ->
                     if (guideOverlay === blocker && equipmentTab.isSelected) {
-                        body.removeAllViews(); body.addView(createEquipmentTable(loaded), activity.matchParentParams())
+                        body.removeAllViews(); body.addView(createEquipmentCatalog(loaded), activity.matchParentParams())
                     }
                 }
-            } else body.addView(createEquipmentTable(rows), activity.matchParentParams())
+            } else body.addView(createEquipmentCatalog(rows), activity.matchParentParams())
         }
         fun selectMonsters() {
             selectTab(ruleTab, false); selectTab(equipmentTab, false); selectTab(monsterTab, true); selectTab(eventTab, false)
@@ -96,10 +97,10 @@ class GameGuideController(
                 }, activity.matchParentParams())
                 loadMonsters { loaded ->
                     if (guideOverlay === blocker && monsterTab.isSelected) {
-                        body.removeAllViews(); body.addView(createMonsterTable(loaded), activity.matchParentParams())
+                        body.removeAllViews(); body.addView(createMonsterCatalog(loaded), activity.matchParentParams())
                     }
                 }
-            } else body.addView(createMonsterTable(rows), activity.matchParentParams())
+            } else body.addView(createMonsterCatalog(rows), activity.matchParentParams())
         }
         fun selectEvents() {
             selectTab(ruleTab, false); selectTab(equipmentTab, false); selectTab(monsterTab, false); selectTab(eventTab, true)
@@ -114,7 +115,10 @@ class GameGuideController(
                     dao.getConfigInt("red_moon_interval_days") ?: 10,
                     dao.getConfigInt("red_moon_monster_attack_percent") ?: 150,
                     dao.getConfigInt("red_moon_drop_rate_percent") ?: 200,
-                    dao.getConfigInt("red_moon_return_floor_interval") ?: 5
+                    dao.getConfigInt("red_moon_return_floor_interval") ?: 5,
+                    dao.getConfigInt("traveling_merchant_interval_days") ?: 5,
+                    5,
+                    10
                 )
                 eventRules = rules
                 activity.runOnUiThread {
@@ -177,7 +181,10 @@ class GameGuideController(
         val itemNames = items.associate { it.code to it.name }
         val floorsByMonster = spawns.groupBy { it.monsterCode }.mapValues { (_, values) -> values.map { it.floor }.distinct().sorted() }
         val dropsByMonster = drops.groupBy { it.monsterCode }
-        return monsters.sortedBy { it.sortOrder }.map { monster ->
+        return monsters.sortedWith(compareBy<MonsterDefinitionEntity>(
+            { floorsByMonster[it.code]?.minOrNull() ?: Int.MAX_VALUE },
+            { it.sortOrder }
+        )).map { monster ->
             val information = buildList {
                 add("HP ${monster.maxHp} · 공격력 ${monster.attackPower}")
                 add("사거리 ${monster.attackRange}칸${if (monster.openingAttackRange != monster.attackRange) " · 최초 ${monster.openingAttackRange}칸" else ""}")
@@ -186,7 +193,10 @@ class GameGuideController(
                 if (monster.goldDrop > 0) add("골드 ${monster.goldDrop}G · ${(monster.goldDropRate * 100).toInt()}%")
             }.joinToString("\n")
             val dropText = dropsByMonster[monster.code].orEmpty().mapNotNull { drop ->
-                itemNames[drop.itemCode]?.let { "$it ${(drop.dropRate * 100).let { rate -> if (rate < 1) "%.1f".format(rate) else rate.toInt().toString() }}%" }
+                itemNames[drop.itemCode]?.let {
+                    val rate = (drop.dropRate * 100).let { value -> if (value < 1) "%.1f".format(value) else value.toInt().toString() }
+                    "$it $rate%${if (drop.dropQuantity > 1) " · ${drop.dropQuantity}개" else ""}"
+                }
             }.ifEmpty { listOf("골드 및 공통 장비") }.joinToString("\n")
             MonsterGuideRow(monster, formatFloors(floorsByMonster[monster.code].orEmpty()), information, dropText)
         }
@@ -239,10 +249,28 @@ class GameGuideController(
     }
 
     private fun createRulesView(): View {
-        val files = listOf("01_COMMON_CONFIG.txt", "02_GAME_FLOW.txt", "03_VILLAGE.txt", "04_ITEMS.txt", "05_COMBAT.txt", "06_DUNGEON.txt", "07_MONSTERS.txt", "09_UI_AUDIO.txt", "10_ITEM_VALUES.txt", "11_GACHA_BOXES.txt", "12_EVENTS.txt", "13_WEAPON_EXPANSION.txt")
-        val body = files.mapNotNull { name ->
-            runCatching { activity.assets.open("game_book/$name").bufferedReader().use { it.readText() } }.getOrNull()
-        }.joinToString("\n\n━━━━━━━━━━━━━━━━━━━━\n\n")
+        val body = """
+            [탐험과 사망]
+            캐릭터의 기본 체력은 10입니다. 창고에 둔 장비와 골드는 사망해도 유지되지만, 던전에 가져간 장비와 소지품은 잃습니다. 새 캐릭터는 가문의 재산 중 무작위 아이템 5개만 이어받습니다.
+
+            [턴과 행동]
+            한 턴에는 이동, 공격, 아이템 사용, 장비 교체, 대기 중 하나만 실행합니다. 무기마다 사거리와 소모 턴이 다르며 장애물 뒤의 대상은 공격하지 못할 수 있습니다. 몬스터의 공격 예고와 민감도 범위를 확인하세요.
+
+            [장비와 인벤토리]
+            던전 인벤토리는 25칸입니다. 전투 중에도 장비를 교체할 수 있지만 1행동을 소비합니다. 일반 장비 수명은 3회이며 등급이 높을수록 기본 수명이 늘어납니다. 고급 이상 장비는 감정소에서 확인해야 사용할 수 있습니다.
+
+            [방어]
+            조잡한 갑옷은 인접 일반 공격, 조잡한 투구는 원거리 공격을 각각 30% 확률로 막습니다. 유니크 이상 투구·갑옷·신발은 10 이상의 피해를 50% 줄이며 여러 개를 착용해도 중첩되지 않습니다.
+
+            [귀환과 보스]
+            귀환석을 사용하면 획득한 전리품을 가지고 마을로 돌아갑니다. 11층 이상에서는 전투 중 사용할 수 없습니다. 보스층에서 전투를 선택하면 해당 층의 모든 보스를 쓰러뜨릴 때까지 귀환할 수 없습니다.
+
+            [시야와 소모품]
+            기본 시야는 캐릭터 주변 2칸입니다. 횃불과 등급별 버프 소모품은 사용한 현재 층에서만 유지됩니다. 활성 효과와 남은 횟수는 던전 하단에 표시됩니다.
+
+            [저장과 재개]
+            로그인 정보, 보유 아이템, 장착 상태, 최고 도달 층과 진행 중인 던전은 기기에 저장됩니다. 탐험 도중 게임을 종료하면 마지막으로 저장된 행동 시점부터 다시 입장할 수 있습니다.
+        """.trimIndent()
         return activity.gameScrollView(TextView(activity).apply {
             text = body
             setTextColor(0xFFE5D9C2.toInt()); textSize = 14f
@@ -256,6 +284,28 @@ class GameGuideController(
         table.addView(tableHeader())
         rows.forEachIndexed { index, row -> table.addView(equipmentRow(row, index)) }
         return activity.gameScrollView(table)
+    }
+
+    private fun createEquipmentCatalog(rows: List<EquipmentGuideRow>): View = LinearLayout(activity).apply {
+        orientation = LinearLayout.VERTICAL
+        val content = FrameLayout(activity)
+        val buttons = EQUIPMENT_FILTERS.associateWith { filter -> tabButton(filter.label).apply { textSize = 14f } }
+        addView(HorizontalScrollView(activity).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                buttons.forEach { (filter, button) ->
+                    addView(button, LinearLayout.LayoutParams(activity.dp(92), activity.dp(40)).apply { marginEnd = activity.dp(6) })
+                    button.setOnClickListener {
+                        buttons.forEach { (candidate, tab) -> selectTab(tab, candidate == filter) }
+                        content.removeAllViews()
+                        content.addView(createEquipmentTable(rows.filter { filter.matches(it.item) }), activity.matchParentParams())
+                    }
+                }
+            })
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, activity.dp(46)))
+        addView(content, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        buttons.getValue(EQUIPMENT_FILTERS.first()).performClick()
     }
 
     private fun createMonsterTable(rows: List<MonsterGuideRow>): View {
@@ -272,6 +322,31 @@ class GameGuideController(
         }.also { it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, activity.dp(44)) })
         rows.forEachIndexed { index, row -> table.addView(monsterRow(row, index)) }
         return activity.gameScrollView(table)
+    }
+
+    private fun createMonsterCatalog(rows: List<MonsterGuideRow>): View = LinearLayout(activity).apply {
+        orientation = LinearLayout.VERTICAL
+        val allTab = tabButton("전체 몬스터")
+        val bossTab = tabButton("보스 몬스터")
+        val content = FrameLayout(activity)
+        addView(LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 0, 0, activity.dp(6))
+            addView(allTab, LinearLayout.LayoutParams(0, activity.dp(40), 1f).apply { marginEnd = activity.dp(4) })
+            addView(bossTab, LinearLayout.LayoutParams(0, activity.dp(40), 1f).apply { marginStart = activity.dp(4) })
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, activity.dp(46)))
+        addView(content, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+
+        fun showRows(showBossesOnly: Boolean) {
+            selectTab(allTab, !showBossesOnly)
+            selectTab(bossTab, showBossesOnly)
+            val visibleRows = if (showBossesOnly) rows.filter { isBoss(it.monster) } else rows
+            content.removeAllViews()
+            content.addView(createMonsterTable(visibleRows), activity.matchParentParams())
+        }
+        allTab.setOnClickListener { showRows(false) }
+        bossTab.setOnClickListener { showRows(true) }
+        showRows(false)
     }
 
     private fun createEventCatalog(rules: EventGuideRules): View {
@@ -295,12 +370,44 @@ class GameGuideController(
                 setPadding(activity.dp(18), activity.dp(14), activity.dp(18), activity.dp(18))
                 background = activity.antiquePanel(0xE6291515.toInt(), 0xFF9D3434.toInt(), 8f, 2)
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(eventCard(
+                "저택 수색",
+                "생존 ${rules.manorIntervalDays}일마다 저택을 다시 수색할 수 있습니다.\n\n" +
+                    "발생 주기  생존 ${rules.manorIntervalDays}일마다\n" +
+                    "기본 보상  ${rules.manorGoldReward}G\n" +
+                    "이용 장소  마을 저택\n\n" +
+                    "수색을 마친 날짜는 저장되며 같은 주기의 보상을 반복해서 받을 수 없습니다.",
+                0xFF5D4527.toInt()
+            ), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = activity.dp(14) })
+            addView(eventCard(
+                "떠돌이 상인",
+                "생존 ${rules.merchantIntervalDays}일마다 마을 중앙에 상자 상인이 찾아옵니다.\n\n" +
+                    "발생 주기  생존 ${rules.merchantIntervalDays}일마다\n" +
+                    "판매 품목  등급별 뽑기상자\n" +
+                    "최초 혜택  상자 등급별 계정당 1회 0G\n\n" +
+                    "무료로 받은 상자는 판매할 수 없으며, 혜택은 새 캐릭터를 만들어도 초기화되지 않습니다.",
+                0xFF3D315B.toInt()
+            ), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = activity.dp(14) })
         }
         return activity.gameScrollView(content)
     }
 
+    private fun eventCard(titleValue: String, bodyValue: String, borderColor: Int) = LinearLayout(activity).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(activity.dp(18), activity.dp(14), activity.dp(18), activity.dp(18))
+        background = activity.antiquePanel(0xE6241A14.toInt(), borderColor, 8f, 2)
+        addView(TextView(activity).apply {
+            text = titleValue; setTextColor(GameUiTheme.GOLD); textSize = 21f
+            typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, activity.dp(38)))
+        addView(TextView(activity).apply {
+            text = bodyValue; setTextColor(0xFFEADFCC.toInt()); textSize = 15f
+            setLineSpacing(activity.dp(4).toFloat(), 1f)
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+    }
+
     private fun monsterRow(row: MonsterGuideRow, index: Int) = LinearLayout(activity).apply {
-        val boss = !row.monster.code.startsWith("mimic_") && row.monster.goldDropRate >= 1.0 && row.monster.maxHp >= 30
+        val boss = isBoss(row.monster)
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         setPadding(0, activity.dp(5), 0, activity.dp(5))
@@ -323,6 +430,9 @@ class GameGuideController(
         addCell(row.information, 0, 1f, color = 0xFFE5D9C2.toInt())
         addCell(row.drops, SOURCE_WIDTH, color = 0xFFFFD58A.toInt())
     }.also { it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, activity.dp(92)).apply { topMargin = activity.dp(4) } }
+
+    private fun isBoss(monster: MonsterDefinitionEntity): Boolean =
+        !monster.code.startsWith("mimic_") && monster.goldDropRate >= 1.0 && monster.maxHp >= 30
 
     private fun monsterPortrait(monster: MonsterDefinitionEntity): Bitmap? = runCatching {
         val sheet = activity.assets.open(monster.spritePath).use(BitmapFactory::decodeStream)
@@ -451,10 +561,35 @@ class GameGuideController(
         val information: String,
         val drops: String
     )
-    private data class EventGuideRules(val intervalDays: Int, val attackPercent: Int, val dropPercent: Int, val returnInterval: Int)
+    private data class EventGuideRules(
+        val intervalDays: Int,
+        val attackPercent: Int,
+        val dropPercent: Int,
+        val returnInterval: Int,
+        val merchantIntervalDays: Int,
+        val manorIntervalDays: Int,
+        val manorGoldReward: Int
+    )
+
+    private enum class EquipmentFilter(val label: String) {
+        SWORD("검"), SPEAR("창"), BOW("활"), GUN("총"), ARMOR("방어구"),
+        AUXILIARY("보조장비"), ACCESSORY("악세서리"), RELIC("유물");
+
+        fun matches(item: ItemDefinitionEntity): Boolean = when (this) {
+            SWORD -> item.category == "WEAPON" && item.specialEffect.orEmpty().substringBefore('|') == "ADJACENT_SWEEP"
+            SPEAR -> item.category == "WEAPON" && item.specialEffect.orEmpty().substringBefore('|') == "LINE_THRUST"
+            BOW -> item.category == "WEAPON" && item.specialEffect.orEmpty().substringBefore('|') == "DOUBLE_SHOT_50"
+            GUN -> item.category == "WEAPON" && item.specialEffect.orEmpty().substringBefore('|') == "KILL_PIERCE"
+            ARMOR -> item.category in setOf("HELMET", "ARMOR", "BOOTS")
+            AUXILIARY -> item.category == "AUXILIARY"
+            ACCESSORY -> item.category == "ACCESSORY"
+            RELIC -> item.category == "RELIC"
+        }
+    }
 
     private companion object {
         val EQUIPMENT_CATEGORIES = setOf("WEAPON", "ARMOR", "HELMET", "BOOTS", "AUXILIARY", "ACCESSORY", "RELIC")
+        val EQUIPMENT_FILTERS = EquipmentFilter.entries.toList()
         val GRADE_ORDER = mapOf("NORMAL" to 0, "HIGH" to 1, "RARE" to 2, "EPIC" to 3, "UNIQUE" to 4, "LEGENDARY" to 5, "MYTHIC" to 6)
         const val IMAGE_WIDTH = 72
         const val NAME_WIDTH = 138

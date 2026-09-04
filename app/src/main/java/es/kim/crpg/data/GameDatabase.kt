@@ -16,7 +16,7 @@ import es.kim.crpg.game.catalog.ExpandedWeaponCatalog
         MonsterFloorSpawnEntity::class, DungeonInteractableDefinitionEntity::class,
         DungeonInteractableSpawnEntity::class, DungeonRunEntity::class
     ],
-    version = 42,
+    version = 45,
     exportSchema = true
 )
 abstract class GameDatabase : RoomDatabase() {
@@ -136,13 +136,13 @@ abstract class GameDatabase : RoomDatabase() {
         private val MIGRATION_16_17 = object : Migration(16, 17) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("CREATE TABLE IF NOT EXISTS monster_floor_spawn (floor INTEGER NOT NULL, spawnOrder INTEGER NOT NULL, monsterCode TEXT NOT NULL, `column` INTEGER NOT NULL, `row` INTEGER NOT NULL, PRIMARY KEY(floor, spawnOrder))")
-                seedFloorsSixToTen(db)
+                seedFloorsSixToTen(db, includeSensitivity = false)
             }
         }
 
         private val MIGRATION_17_18 = object : Migration(17, 18) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                seedFloorsElevenToFifteen(db)
+                seedFloorsElevenToFifteen(db, includeSensitivity = false)
             }
         }
 
@@ -309,6 +309,34 @@ abstract class GameDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) = seedFloorsSixteenToTwentyFive(db)
         }
 
+        private val MIGRATION_42_43 = object : Migration(42, 43) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE monster_drop RENAME TO monster_drop_old")
+                db.execSQL("CREATE TABLE monster_drop (monsterCode TEXT NOT NULL, itemCode TEXT NOT NULL, dropRate REAL NOT NULL, dropQuantity INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(monsterCode, itemCode))")
+                db.execSQL("INSERT INTO monster_drop(monsterCode,itemCode,dropRate,dropQuantity) SELECT monsterCode,itemCode,dropRate,1 FROM monster_drop_old")
+                db.execSQL("DROP TABLE monster_drop_old")
+                seedFloorConsumables(db)
+                db.execSQL("UPDATE item_definition SET detail = '인접한 적의 일반 공격을 30% 확률로 완전히 방어', specialEffect = 'MELEE_BLOCK_30' WHERE code = 'crude_armor'")
+                db.execSQL("UPDATE item_definition SET detail = '원거리 공격을 30% 확률로 완전히 방어', specialEffect = 'RANGED_BLOCK_30' WHERE code = 'crude_helmet'")
+            }
+        }
+
+        private val MIGRATION_43_44 = object : Migration(43, 44) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('unique_armor_damage_threshold',10,NULL,NULL)")
+                db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('unique_armor_damage_reduction_percent',50,NULL,NULL)")
+            }
+        }
+
+        private val MIGRATION_44_45 = object : Migration(44, 45) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE login_profile ADD COLUMN activeCharacterId INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE login_profile SET activeCharacterId = id WHERE activeCharacterId = 0")
+                db.execSQL("ALTER TABLE owned_item ADD COLUMN characterId INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE owned_item SET characterId = ownerId WHERE characterId = 0")
+            }
+        }
+
         private val CREATE_AND_SEED = object : Callback() {
             override fun onCreate(db: SupportSQLiteDatabase) {
                 super.onCreate(db)
@@ -321,7 +349,7 @@ abstract class GameDatabase : RoomDatabase() {
             db.execSQL("CREATE TABLE IF NOT EXISTS monster_definition (code TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, maxHp INTEGER NOT NULL, attackPower INTEGER NOT NULL, attackRange INTEGER NOT NULL, openingAttackRange INTEGER NOT NULL, moveDistance INTEGER NOT NULL, moveEveryTurns INTEGER NOT NULL, goldDrop INTEGER NOT NULL, goldDropRate REAL NOT NULL, spritePath TEXT NOT NULL, sensitivity INTEGER NOT NULL, sortOrder INTEGER NOT NULL)")
             db.execSQL("CREATE TABLE IF NOT EXISTS appraisal_rule (grade TEXT NOT NULL PRIMARY KEY, cost INTEGER NOT NULL, successRate REAL NOT NULL, colorValue INTEGER NOT NULL, sortOrder INTEGER NOT NULL)")
             db.execSQL("CREATE TABLE IF NOT EXISTS game_config (`key` TEXT NOT NULL PRIMARY KEY, intValue INTEGER, doubleValue REAL, textValue TEXT)")
-            db.execSQL("CREATE TABLE IF NOT EXISTS monster_drop (monsterCode TEXT NOT NULL, itemCode TEXT NOT NULL, dropRate REAL NOT NULL, PRIMARY KEY(monsterCode, itemCode))")
+            db.execSQL("CREATE TABLE IF NOT EXISTS monster_drop (monsterCode TEXT NOT NULL, itemCode TEXT NOT NULL, dropRate REAL NOT NULL, dropQuantity INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(monsterCode, itemCode))")
             db.execSQL("CREATE TABLE IF NOT EXISTS monster_floor_spawn (floor INTEGER NOT NULL, spawnOrder INTEGER NOT NULL, monsterCode TEXT NOT NULL, `column` INTEGER NOT NULL, `row` INTEGER NOT NULL, PRIMARY KEY(floor, spawnOrder))")
             createDungeonInteractableTables(db)
         }
@@ -337,12 +365,13 @@ abstract class GameDatabase : RoomDatabase() {
                 arrayOf("crude_spear", "조잡한 창", "WEAPON", "NORMAL", "BLACKSMITH", 5, 1, "ui/items/item_crude_spear.png", 0, 1, 4, 2, 3, 0, "공격 4 · 2턴 · 직선 사거리 3 전체 찌르기", "LINE_THRUST", .05, "ui/dungeon/player/player_spear_animation_sheet.png", 11),
                 arrayOf("crude_bow", "조잡한 활", "WEAPON", "NORMAL", "BLACKSMITH", 5, 1, "ui/items/item_crude_bow.png", 0, 1, 3, 1, 4, 0, "공격 3 · 1턴 · 사거리 4 · 50% 확률로 추가 사격", "DOUBLE_SHOT_50", .05, "ui/dungeon/player/player_bow_animation_sheet.png", 12),
                 arrayOf("crude_gun", "조잡한 총", "WEAPON", "NORMAL", "BLACKSMITH", 5, 1, "ui/items/item_crude_gun.png", 0, 1, 5, 2, 5, 0, "공격 5 · 2턴 · 사거리 5 · 처치 시 직선 관통", "KILL_PIERCE", .05, "ui/dungeon/player/player_gun_animation_sheet.png", 13),
-                arrayOf("crude_armor", "조잡한 갑옷", "ARMOR", "NORMAL", "BLACKSMITH", 5, 1, "ui/items/item_crude_armor.png", 0, 1, 0, 0, 0, 0, "방어 확률 30% · 방어 성공 시 피해 무효", "BLOCK_CHANCE_30", .05, null, 14),
-                arrayOf("crude_helmet", "조잡한 투구", "HELMET", "NORMAL", "BLACKSMITH", 5, 1, "ui/items/item_crude_helmet.png", 0, 1, 0, 0, 0, 0, "방어 확률 30% · 방어 성공 시 피해 무효", "BLOCK_CHANCE_30", .05, null, 15),
+                arrayOf("crude_armor", "조잡한 갑옷", "ARMOR", "NORMAL", "BLACKSMITH", 5, 1, "ui/items/item_crude_armor.png", 0, 1, 0, 0, 0, 0, "인접한 적의 일반 공격을 30% 확률로 완전히 방어", "MELEE_BLOCK_30", .05, null, 14),
+                arrayOf("crude_helmet", "조잡한 투구", "HELMET", "NORMAL", "BLACKSMITH", 5, 1, "ui/items/item_crude_helmet.png", 0, 1, 0, 0, 0, 0, "원거리 공격을 30% 확률로 완전히 방어", "RANGED_BLOCK_30", .05, null, 15),
                 arrayOf("crude_boots", "조잡한 신발", "BOOTS", "NORMAL", "BLACKSMITH", 5, 1, "ui/items/item_crude_boots.png", 0, 1, 0, 0, 0, 0, "이동 시 50% 확률로 +1칸", "이동 거리 +1 확률 50%", .05, null, 16)
             ).forEach { db.execSQL(itemSql, it) }
 
             seedRareMonsterItems(db)
+            seedFloorConsumables(db)
             seedExpandedWeapons(db)
             seedTravelingMerchantBoxes(db)
             seedFloorsSixToTen(db)
@@ -384,7 +413,9 @@ abstract class GameDatabase : RoomDatabase() {
                 arrayOf("red_moon_interval_days", 10, null, null),
                 arrayOf("red_moon_monster_attack_percent", 150, null, null),
                 arrayOf("red_moon_drop_rate_percent", 200, null, null),
-                arrayOf("red_moon_return_floor_interval", 5, null, null)
+                arrayOf("red_moon_return_floor_interval", 5, null, null),
+                arrayOf("unique_armor_damage_threshold", 10, null, null),
+                arrayOf("unique_armor_damage_reduction_percent", 50, null, null)
             ).forEach { db.execSQL(configSql, it) }
         }
 
@@ -433,6 +464,32 @@ abstract class GameDatabase : RoomDatabase() {
             db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('dungeon_healing_object_chance_percent',30,NULL,NULL)")
         }
 
+        private fun seedFloorConsumables(db: SupportSQLiteDatabase) {
+            val itemSql = "INSERT OR REPLACE INTO item_definition VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+            listOf<Array<Any?>>(
+                arrayOf("mercenary_oil", "용병의 무기 기름", "CONSUMABLE", "HIGH", "DROP_ONLY", 12, 1, "ui/items/consumables/item_mercenary_oil.png", 1, 99, 0, 0, 0, 0, "사용한 현재 층 동안 모든 무기 공격력 +1", "FLOOR_ATTACK_PLUS_1_CONSUMABLE", .0, null, 300),
+                arrayOf("hunters_eye", "사냥꾼의 눈물", "CONSUMABLE", "RARE", "DROP_ONLY", 25, 1, "ui/items/consumables/item_hunters_eye.png", 1, 99, 0, 0, 0, 0, "사용한 현재 층 동안 모든 무기 사거리 +1", "FLOOR_RANGE_PLUS_1", .0, null, 301),
+                arrayOf("ironwall_oil", "철벽의 성유", "CONSUMABLE", "EPIC", "DROP_ONLY", 45, 1, "ui/items/consumables/item_ironwall_oil.png", 1, 99, 0, 0, 0, 0, "사용한 현재 층 동안 인접 일반 공격 방어 확률 +20%", "FLOOR_MELEE_BLOCK_20", .0, null, 302),
+                arrayOf("demon_blood", "악마의 피", "CONSUMABLE", "UNIQUE", "DROP_ONLY", 80, 1, "ui/items/consumables/item_demon_blood.png", 1, 99, 0, 0, 0, 0, "사용한 현재 층 동안 모든 무기 공격력 +2", "FLOOR_ATTACK_PLUS_2", .0, null, 303),
+                arrayOf("abyss_accelerant", "심연 촉진제", "CONSUMABLE", "LEGENDARY", "DROP_ONLY", 140, 1, "ui/items/consumables/item_abyss_accelerant.png", 1, 99, 0, 0, 0, 0, "사용한 현재 층 동안 모든 무기 공격력 +2 및 사거리 +1", "FLOOR_ATTACK_PLUS_2_RANGE_PLUS_1", .0, null, 304),
+                arrayOf("absolute_guard_chalice", "절대 수호의 성배", "CONSUMABLE", "MYTHIC", "DROP_ONLY", 300, 1, "ui/items/consumables/item_absolute_guard_chalice.png", 1, 99, 0, 0, 0, 0, "사용한 현재 층에서 다음 5회의 몬스터 공격을 100% 방어", "FLOOR_GUARD_5", .0, null, 305)
+            ).forEach { db.execSQL(itemSql, it) }
+
+            val dropSql = "INSERT OR REPLACE INTO monster_drop(monsterCode,itemCode,dropRate,dropQuantity) VALUES (?,?,?,?)"
+            fun addDrops(monsters: List<String>, itemCode: String, rate: Double, quantity: Int = 5) {
+                monsters.forEach { monster -> db.execSQL(dropSql, arrayOf<Any?>(monster, itemCode, rate, quantity)) }
+            }
+            addDrops(listOf("spider", "wild_dog", "bandit", "slime"), "mercenary_oil", .10)
+            addDrops(listOf("plague_rat", "drowned_dead", "spore_body", "hook_jailer"), "hunters_eye", .08)
+            addDrops(listOf("ash_arbalist", "cinder_gargoyle", "ember_deacon", "molten_bombardier"), "ironwall_oil", .06)
+            addDrops(listOf("rift_hound", "infernal_lancer", "void_oracle", "hellshot_apostle"), "demon_blood", .04)
+            addDrops(listOf("void_hound", "abyss_lancer", "starved_oracle", "blackpowder_apostle"), "abyss_accelerant", .03)
+            addDrops(
+                listOf("plague_bell_keeper", "furnace_saint", "eclipse_archon_20", "abyss_maw_20", "eclipse_archon_25", "abyss_maw_25"),
+                "absolute_guard_chalice", .20, 1
+            )
+        }
+
         private fun seedRareMonsterItems(db: SupportSQLiteDatabase) {
             val itemSql = "INSERT OR REPLACE INTO item_definition VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
             listOf<Array<Any?>>(
@@ -453,7 +510,7 @@ abstract class GameDatabase : RoomDatabase() {
                 arrayOf("splitting_core", "분열하는 핵", "ACCESSORY", "UNIQUE", "DROP_ONLY", 60, 1, "ui/items/rare/item_splitting_core.png", 0, 1, 0, 0, 0, 0, "치명 피해를 HP 1로 생존하고 즉시 파괴", "LETHAL_SURVIVE", .0, null, 132)
             ).forEach { db.execSQL(itemSql, it) }
 
-            val dropSql = "INSERT OR REPLACE INTO monster_drop VALUES (?,?,?)"
+            val dropSql = "INSERT OR REPLACE INTO monster_drop(monsterCode,itemCode,dropRate) VALUES (?,?,?)"
             listOf<Array<Any?>>(
                 arrayOf("spider", "web_glove", .05), arrayOf("spider", "venom_dagger", .02),
                 arrayOf("spider", "spider_eye_helmet", .02), arrayOf("spider", "spider_queen_heart", .005),
@@ -466,15 +523,21 @@ abstract class GameDatabase : RoomDatabase() {
             ).forEach { db.execSQL(dropSql, it) }
         }
 
-        private fun seedFloorsSixToTen(db: SupportSQLiteDatabase) {
-            val monsterSql = "INSERT OR REPLACE INTO monster_definition VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
+        private fun seedFloorsSixToTen(db: SupportSQLiteDatabase, includeSensitivity: Boolean = true) {
+            val monsterSql = if (includeSensitivity) {
+                "INSERT OR REPLACE INTO monster_definition(code,name,maxHp,attackPower,attackRange,openingAttackRange,moveDistance,moveEveryTurns,goldDrop,goldDropRate,spritePath,sensitivity,sortOrder) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
+            } else {
+                "INSERT OR REPLACE INTO monster_definition(code,name,maxHp,attackPower,attackRange,openingAttackRange,moveDistance,moveEveryTurns,goldDrop,goldDropRate,spritePath,sortOrder) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+            }
             listOf<Array<Any?>>(
                 arrayOf("plague_rat", "역병쥐", 7, 2, 1, 2, 2, 1, 2, .70, "ui/dungeon/monsters/floors_06_10/plague_rat_animation_sheet.png", 6, 20),
                 arrayOf("drowned_dead", "익사한 망자", 13, 3, 1, 1, 1, 1, 2, .70, "ui/dungeon/monsters/floors_06_10/drowned_dead_animation_sheet.png", 3, 21),
                 arrayOf("spore_body", "균사 포자체", 8, 2, 3, 3, 1, 1, 2, .70, "ui/dungeon/monsters/floors_06_10/spore_body_animation_sheet.png", 5, 22),
                 arrayOf("hook_jailer", "갈고리 간수", 11, 4, 2, 2, 1, 1, 3, .70, "ui/dungeon/monsters/floors_06_10/hook_jailer_animation_sheet.png", 5, 23),
                 arrayOf("plague_bell_keeper", "역병의 종지기", 30, 4, 4, 4, 1, 1, 8, 1.0, "ui/dungeon/monsters/floors_06_10/plague_bell_keeper_animation_sheet.png", 8, 24)
-            ).forEach { db.execSQL(monsterSql, it) }
+            ).forEach { values ->
+                db.execSQL(monsterSql, if (includeSensitivity) values else values.filterIndexed { index, _ -> index != 11 }.toTypedArray())
+            }
 
             val itemSql = "INSERT OR REPLACE INTO item_definition VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
             listOf<Array<Any?>>(
@@ -485,7 +548,7 @@ abstract class GameDatabase : RoomDatabase() {
                 arrayOf("funeral_bell_heart", "장례종의 심장", "RELIC", "UNIQUE", "DROP_ONLY", 70, 1, "ui/items/relics/item_funeral_bell_heart.png", 0, 1, 0, 0, 0, 0, "처치 후 다음 공격력 +2, 반경 6칸의 적이 즉시 감지", "RELIC_KILL_POWER_ALERT", .0, null, 204)
             ).forEach { db.execSQL(itemSql, it) }
 
-            val dropSql = "INSERT OR REPLACE INTO monster_drop VALUES (?,?,?)"
+            val dropSql = "INSERT OR REPLACE INTO monster_drop(monsterCode,itemCode,dropRate) VALUES (?,?,?)"
             listOf<Array<Any?>>(
                 arrayOf("plague_rat", "flooded_star_map", .01),
                 arrayOf("spore_body", "plague_doctor_censer", .02),
@@ -507,15 +570,21 @@ abstract class GameDatabase : RoomDatabase() {
             floors.forEach { (floor, spawns) -> spawns.forEachIndexed { index, entry -> db.execSQL(spawnSql, arrayOf<Any?>(floor, index, entry.first, entry.second.first, entry.second.second)) } }
         }
 
-        private fun seedFloorsElevenToFifteen(db: SupportSQLiteDatabase) {
-            val monsterSql = "INSERT OR REPLACE INTO monster_definition VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
+        private fun seedFloorsElevenToFifteen(db: SupportSQLiteDatabase, includeSensitivity: Boolean = true) {
+            val monsterSql = if (includeSensitivity) {
+                "INSERT OR REPLACE INTO monster_definition(code,name,maxHp,attackPower,attackRange,openingAttackRange,moveDistance,moveEveryTurns,goldDrop,goldDropRate,spritePath,sensitivity,sortOrder) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
+            } else {
+                "INSERT OR REPLACE INTO monster_definition(code,name,maxHp,attackPower,attackRange,openingAttackRange,moveDistance,moveEveryTurns,goldDrop,goldDropRate,spritePath,sortOrder) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+            }
             listOf<Array<Any?>>(
                 arrayOf("ash_arbalist", "잿빛 쇠뇌병", 10, 3, 5, 5, 1, 1, 3, .70, "ui/dungeon/monsters/floors_11_15/ash_arbalist_animation_sheet.png", 7, 30),
                 arrayOf("cinder_gargoyle", "불씨 가고일", 12, 3, 3, 3, 2, 1, 3, .70, "ui/dungeon/monsters/floors_11_15/cinder_gargoyle_animation_sheet.png", 6, 31),
                 arrayOf("ember_deacon", "잿불 부제", 11, 2, 4, 4, 1, 1, 3, .70, "ui/dungeon/monsters/floors_11_15/ember_deacon_animation_sheet.png", 8, 32),
                 arrayOf("molten_bombardier", "용융 포격수", 15, 4, 4, 4, 1, 1, 4, .70, "ui/dungeon/monsters/floors_11_15/molten_bombardier_animation_sheet.png", 7, 33),
                 arrayOf("furnace_saint", "타락한 용광로 성자", 38, 5, 5, 5, 1, 1, 10, 1.0, "ui/dungeon/monsters/floors_11_15/furnace_saint_animation_sheet.png", 10, 34)
-            ).forEach { db.execSQL(monsterSql, it) }
+            ).forEach { values ->
+                db.execSQL(monsterSql, if (includeSensitivity) values else values.filterIndexed { index, _ -> index != 11 }.toTypedArray())
+            }
 
             val itemSql = "INSERT OR REPLACE INTO item_definition VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
             listOf<Array<Any?>>(
@@ -526,7 +595,7 @@ abstract class GameDatabase : RoomDatabase() {
                 arrayOf("furnace_core", "성자의 용광로 핵", "RELIC", "UNIQUE", "DROP_ONLY", 80, 1, "ui/items/relics/floors_11_15/item_furnace_core.png", 0, 1, 0, 0, 0, 0, "모든 무기 공격력 +1, 5회 공격마다 자신에게 피해 1", "RELIC_ATTACK_PLUS_1_RECOIL", .0, null, 224)
             ).forEach { db.execSQL(itemSql, it) }
 
-            val dropSql = "INSERT OR REPLACE INTO monster_drop VALUES (?,?,?)"
+            val dropSql = "INSERT OR REPLACE INTO monster_drop(monsterCode,itemCode,dropRate) VALUES (?,?,?)"
             listOf<Array<Any?>>(
                 arrayOf("ash_arbalist", "ash_compass", .02),
                 arrayOf("cinder_gargoyle", "cold_iron_rosary", .02),
@@ -579,7 +648,7 @@ abstract class GameDatabase : RoomDatabase() {
             (21..24).forEach { seedFloor(it, upperPool) }
             seedFloor(25, upperPool, listOf("eclipse_archon_25", "abyss_maw_25"))
 
-            val dropSql = "INSERT OR REPLACE INTO monster_drop VALUES (?,?,?)"
+            val dropSql = "INSERT OR REPLACE INTO monster_drop(monsterCode,itemCode,dropRate) VALUES (?,?,?)"
             listOf<Array<Any?>>(
                 arrayOf("rift_hound", "exp_epic_sword_01", .08), arrayOf("infernal_lancer", "exp_epic_spear_02", .08),
                 arrayOf("void_oracle", "exp_epic_bow_03", .08), arrayOf("hellshot_apostle", "exp_epic_gun_00", .08),
@@ -614,7 +683,7 @@ abstract class GameDatabase : RoomDatabase() {
                     context.applicationContext,
                     GameDatabase::class.java,
                     "crpg_game.db"
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42).addCallback(CREATE_AND_SEED).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45).addCallback(CREATE_AND_SEED).build().also { instance = it }
             }
         }
     }

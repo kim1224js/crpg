@@ -68,9 +68,14 @@ class EquipmentOptionDialog(private val context: Context) {
             setOnClickListener { dialog.dismiss() }
         }, LinearLayout.LayoutParams(dp(32), dp(32)).apply { marginStart = dp(12) })
         panel.addView(header)
-        panel.addView(label(gradeName(grade), gradeColor(grade), 16f, true).apply {
+        panel.addView(label("${gradeName(grade)}${if (!item.isIdentified) " · 미감정" else ""}", gradeColor(grade), 16f, true).apply {
             setPadding(0, dp(2), 0, dp(12))
         })
+        if (!item.isIdentified) {
+            panel.addView(label("현재 기본 성능으로 사용할 수 있습니다. 감정에 성공하면 능력치와 수명이 변동됩니다.", 0xFFFFD77A.toInt(), 14f).apply {
+                setPadding(0, 0, 0, dp(10))
+            })
+        }
         panel.addView(View(context).apply { setBackgroundColor(goldDark) }, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, dp(1)
         ).apply { bottomMargin = dp(14) })

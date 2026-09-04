@@ -43,6 +43,7 @@ class InventoryRepository(private val database: GameDatabase) {
                 }
                 dao.insert(OwnedItemEntity(
                     ownerId = ownerId,
+                    characterId = profile.activeCharacterId,
                     itemCode = itemCode,
                     displayName = displayName,
                     quantity = addedQuantity,
@@ -147,7 +148,8 @@ class InventoryRepository(private val database: GameDatabase) {
                 return@runInTransaction
             }
             dao.insert(OwnedItemEntity(
-                ownerId = ownerId, itemCode = itemCode, displayName = displayName, quantity = 1,
+                ownerId = ownerId, characterId = profile.activeCharacterId,
+                itemCode = itemCode, displayName = displayName, quantity = 1,
                 container = "INVENTORY", slotIndex = emptySlot, isSellable = false
             ))
             successGold = profile.gold

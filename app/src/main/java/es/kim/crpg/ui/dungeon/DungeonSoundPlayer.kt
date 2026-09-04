@@ -68,6 +68,7 @@ internal class DungeonSoundPlayer(private val appContext: Context) {
     )
     private val chestLatch = load("audio/combat/armor_hit_heavy_01.ogg")
     private val chestOpen = load("audio/village/wooden_door_open.wav")
+    private val doorOpen = load("audio/village/wooden_door_open.wav")
     private val chestReveal = load("audio/combat/weapon_hit_metal_light_02.ogg")
 
     fun playAttack(monsterCode: String?) = play(sounds[monsterCode]?.attack)
@@ -77,6 +78,7 @@ internal class DungeonSoundPlayer(private val appContext: Context) {
     fun playWeaponImpact(weaponCode: String?) = play(weaponImpacts[weaponCode], 0.72f)
     fun playChestLatch() = play(chestLatch, 0.68f)
     fun playChestOpen() = play(chestOpen, 0.42f)
+    fun playDoorOpen() = play(doorOpen, 0.5f)
     fun playChestReveal() = play(chestReveal, 0.56f)
 
     private fun play(soundId: Int?, volume: Float = 0.9f) {

@@ -113,16 +113,32 @@ object TimedStoryOverlay {
                 }
             }, index * 1_000L)
         }
-        var enabled = false
+        var finishing = false
+        var revealedAll = false
         overlay.postDelayed({
-            enabled = true
+            revealedAll = true
             prompt.animate().alpha(1f).setDuration(700L).start()
         }, (config.lines.lastIndex * 1_000L) + lineFadeDuration)
         overlay.setOnClickListener {
-            if (!enabled) return@setOnClickListener
-            enabled = false
+            if (finishing) return@setOnClickListener
+            if (!gameOver && !revealedAll) {
+                revealedAll = true
+                lineViews.forEach { lineView ->
+                    lineView.animate().cancel()
+                    lineView.alpha = 1f
+                    lineView.translationY = 0f
+                }
+                prompt.animate().cancel()
+                prompt.text = "한 번 더 터치하여 시작"
+                prompt.alpha = 1f
+                scroll.post { scroll.fullScroll(android.view.View.FOCUS_DOWN) }
+                return@setOnClickListener
+            }
+            finishing = true
             overlay.isClickable = false
-            overlay.animate().alpha(0f).setDuration(800L).withEndAction {
+            lineViews.forEach { it.animate().cancel() }
+            prompt.animate().cancel()
+            overlay.animate().alpha(0f).setDuration(180L).withEndAction {
                 (overlay.parent as? ViewGroup)?.removeView(overlay)
                 config.onFinished()
             }.start()

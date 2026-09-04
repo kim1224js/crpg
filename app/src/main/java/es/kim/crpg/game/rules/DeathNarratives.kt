@@ -1,7 +1,17 @@
 package es.kim.crpg.game.rules
 
 object DeathNarratives {
+    fun causeLabel(code: String?, name: String?): String = when (code) {
+        "status_poison" -> "중독${name?.let { " · $it" }.orEmpty()}"
+        "status_burn" -> "화상${name?.let { " · $it" }.orEmpty()}"
+        "relic_recoil" -> "유물 반동 · 성자의 용광로 핵"
+        else -> "일반 공격 · ${name ?: "정체불명의 괴물"}"
+    }
+
     fun forMonster(code: String?, name: String?): String = when (code) {
+        "status_poison" -> "${name ?: "괴물"}이 남긴 독이 심장까지 번졌다. 마지막 적을 쓰러뜨렸지만, 녹빛 독혈이 온몸을 굳히며 끝내 숨을 끊었다."
+        "status_burn" -> "${name ?: "괴물"}이 남긴 불길이 꺼지지 않았다. 승리의 순간에도 살과 갑옷은 계속 타들어 갔고, 검은 재만 바닥에 남았다."
+        "relic_recoil" -> "성자의 용광로 핵이 감당할 수 없는 열을 토해냈다. 적에게 향하던 힘이 심장을 태우며 주인까지 제물로 삼았다."
         "spider" -> "거미의 독니에 몸이 굳은 채, 어둠 속 거미줄에 매달린 먹잇감이 되었다."
         "wild_dog" -> "들개의 이빨에 쓰러져, 빛 한 점 없는 바닥에서 무자비하게 뜯어 먹혔다."
         "bandit" -> "도적의 칼날에 무자비하게 썰려, 이름 없는 전리품처럼 차가운 바닥에 버려졌다."

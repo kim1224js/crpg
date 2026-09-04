@@ -14,4 +14,7 @@ interface DeceasedCharacterDao {
 
     @Query("SELECT COUNT(*) FROM deceased_character")
     fun count(): Int
+
+    @Query("SELECT * FROM deceased_character WHERE diedAt = :diedAt LIMIT 1")
+    fun getByDiedAt(diedAt: Long): DeceasedCharacterEntity?
 }
