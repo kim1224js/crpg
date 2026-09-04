@@ -280,7 +280,7 @@ class MainActivity : GameActivity() {
                     )
                 )
             }
-            ownedItems = gameDatabase.ownedItemDao().getForOwner(profile.id)
+            ownedItems = currentCharacterItems(gameDatabase.ownedItemDao().getForOwner(profile.id))
             dungeonRunPayload = gameDatabase.dungeonRunDao().get(profile.id)?.payloadJson
             awaitingHeirCreation = false
             ensureEquippedWeapon()
@@ -299,7 +299,7 @@ class MainActivity : GameActivity() {
             highestFloor = profile.highestFloor
             unlockedDungeonStartFloor = profile.unlockedDungeonStartFloor
             introSeen = profile.introSeen
-            ownedItems = gameDatabase.ownedItemDao().getForOwner(profile.id)
+            ownedItems = currentCharacterItems(gameDatabase.ownedItemDao().getForOwner(profile.id))
             dungeonRunPayload = gameDatabase.dungeonRunDao().get(profile.id)?.payloadJson
             ensureEquippedWeapon()
             runOnUiThread {
@@ -324,6 +324,9 @@ class MainActivity : GameActivity() {
 
     private fun gameInt(key: String, fallback: Int): Int = gameConfigs[key] ?: fallback
 
+    private fun currentCharacterItems(items: List<OwnedItemEntity>): List<OwnedItemEntity> =
+        items.filter { it.characterId == currentCharacterId && it.container != "ESTATE" }
+
     private fun ensureEquippedWeapon() {
         val equipped = ownedItems.firstOrNull { it.isEquipped && ItemCatalog.isWeapon(it.itemCode) }
             ?: ownedItems.firstOrNull { it.container == "INVENTORY" && ItemCatalog.isWeapon(it.itemCode) }
@@ -333,7 +336,7 @@ class MainActivity : GameActivity() {
                 gameDatabase.ownedItemDao().clearEquippedCategories(currentPlayerId, listOf("WEAPON"))
                 gameDatabase.ownedItemDao().setEquipped(equipped.id)
             }
-            ownedItems = gameDatabase.ownedItemDao().getForOwner(currentPlayerId)
+            ownedItems = currentCharacterItems(gameDatabase.ownedItemDao().getForOwner(currentPlayerId))
         }
     }
 
@@ -558,7 +561,7 @@ class MainActivity : GameActivity() {
             }
             val box = ItemCatalog.definition(itemCode) ?: return@execute
             val result = inventoryRepository.grantFreeMerchantBox(currentPlayerId, box.code, box.name)
-            ownedItems = result.items
+            ownedItems = currentCharacterItems(result.items)
             if (result.gold != null) {
                 profileDao.updateMerchantFreeClaimMask(currentPlayerId, profile.merchantFreeClaimMask or claimBit)
             }
@@ -802,7 +805,7 @@ class MainActivity : GameActivity() {
                         resultMessage = "${gold}G를 획득했습니다"
                     }
                 }
-                ownedItems = dao.getForOwner(currentPlayerId)
+                ownedItems = currentCharacterItems(dao.getForOwner(currentPlayerId))
                 if (canGrantEquipment) {
                     rewardItem = ownedItems.firstOrNull {
                         it.container == current.container && it.slotIndex == rewardSlot && it.itemCode == rewardDefinition?.code
@@ -854,7 +857,7 @@ class MainActivity : GameActivity() {
                     AntiqueGameDialog.Action("판매", primary = true) {
                         databaseExecutor.execute {
                             val result = inventoryRepository.sell(currentPlayerId, item.id)
-                            ownedItems = result.items
+                            ownedItems = currentCharacterItems(result.items)
                             result.gold?.let { playerGold = it }
                             ensureEquippedWeapon()
                             runOnUiThread {
@@ -1012,7 +1015,7 @@ class MainActivity : GameActivity() {
             val result = inventoryRepository.purchase(
                 currentPlayerId, itemCode, displayName, unitPrice, unitsPerPurchase, purchaseQuantity
             )
-            ownedItems = result.items
+            ownedItems = currentCharacterItems(result.items)
             result.gold?.let { playerGold = it }
             runOnUiThread {
                 Toast.makeText(this, result.message, Toast.LENGTH_SHORT).show()
@@ -1137,7 +1140,7 @@ class MainActivity : GameActivity() {
                 } else {
                     message = "감정 실패 · 장비는 유지됩니다."
                 }
-                ownedItems = gameDatabase.ownedItemDao().getForOwner(currentPlayerId)
+                ownedItems = currentCharacterItems(gameDatabase.ownedItemDao().getForOwner(currentPlayerId))
             }
             runOnUiThread {
                 if (message.startsWith("골드가")) {
@@ -1218,7 +1221,7 @@ class MainActivity : GameActivity() {
         val changingDungeonLoadout = shopOverlay?.contentDescription == "dungeon_loadout"
         databaseExecutor.execute {
             val result = inventoryRepository.moveToSlot(currentPlayerId, itemId, targetContainer, targetSlot)
-            ownedItems = result.items
+            ownedItems = currentCharacterItems(result.items)
             var equippedMessage: String? = null
             if (changingDungeonLoadout && targetContainer == "INVENTORY") {
                 val movedItem = ownedItems.firstOrNull { it.id == itemId }
@@ -1230,7 +1233,7 @@ class MainActivity : GameActivity() {
                         dao.clearEquippedCategories(currentPlayerId, listOf(category!!))
                         dao.setEquipped(movedItem.id)
                     }
-                    ownedItems = dao.getForOwner(currentPlayerId)
+                    ownedItems = currentCharacterItems(dao.getForOwner(currentPlayerId))
                     if (category == "WEAPON") dungeonEquippedWeaponCode = movedItem.itemCode
                     equippedMessage = "${movedItem.displayName}으로 장착 장비를 변경했습니다."
                 }
@@ -1262,7 +1265,7 @@ class MainActivity : GameActivity() {
     private fun transferStoredItem(item: OwnedItemEntity) {
         databaseExecutor.execute {
             val result = inventoryRepository.transfer(currentPlayerId, item)
-            ownedItems = result.items
+            ownedItems = currentCharacterItems(result.items)
             runOnUiThread {
                 Toast.makeText(this, result.message, Toast.LENGTH_SHORT).show()
                 refreshInnWarehouse()
@@ -1309,14 +1312,15 @@ class MainActivity : GameActivity() {
         }
         val currentDay = profile?.survivalDay ?: survivalDay
         val lastSearchDay = profile?.lastManorSearchDay ?: 0
-        val availableSearchDay = ((lastSearchDay / 5) + 1) * 5
+        val manorInterval = gameInt("manor_search_interval_days", 5).coerceAtLeast(1)
+        val availableSearchDay = ((lastSearchDay / manorInterval) + 1) * manorInterval
         val canSearch = currentDay >= availableSearchDay
         content.addView(facilityChoicePanel(
             title = if (canSearch) "저택 수색 가능" else "다음 수색까지 ${availableSearchDay - currentDay}일",
             description = if (canSearch) {
                 "$availableSearchDay 일차 수색이 해금되었습니다. 저택에 남은 흔적을 조사합니다."
             } else {
-                "저택은 5일마다 다시 수색할 수 있습니다."
+                "저택은 ${manorInterval}일마다 다시 수색할 수 있습니다."
             },
             buttonText = if (canSearch) "저택 수색" else "아직 수색할 수 없음",
             message = if (canSearch) null else "${availableSearchDay}일차에 다시 수색할 수 있습니다.",
@@ -1367,7 +1371,7 @@ class MainActivity : GameActivity() {
                 }
                 gameDatabase.loginProfileDao().clearEstateNotice(ownerId)
             }
-            ownedItems = dao.getForOwner(ownerId)
+            ownedItems = currentCharacterItems(dao.getForOwner(ownerId))
             runOnUiThread { showManorEntrance() }
         }
     }
@@ -1387,16 +1391,22 @@ class MainActivity : GameActivity() {
             gameDatabase.runInTransaction {
                 val dao = gameDatabase.loginProfileDao()
                 val profile = dao.getById(currentPlayerId) ?: return@runInTransaction
-                val expectedDay = ((profile.lastManorSearchDay / 5) + 1) * 5
+                val interval = gameInt("manor_search_interval_days", 5).coerceAtLeast(1)
+                val expectedDay = ((profile.lastManorSearchDay / interval) + 1) * interval
                 if (searchDay != expectedDay || profile.survivalDay < searchDay) return@runInTransaction
-                val searchCount = searchDay / 5
-                val rewardTier = ((searchCount - 1) / 4).coerceAtLeast(0) + 1
-                val reward = Random.nextInt(10 * rewardTier, 50 * rewardTier + 1)
+                val searchCount = searchDay / interval
+                val groupSize = gameInt("manor_reward_group_size", 4).coerceAtLeast(1)
+                val rewardTier = ((searchCount - 1) / groupSize).coerceAtLeast(0) + 1
+                val minimumStep = gameInt("manor_reward_min_step", 10).coerceAtLeast(0)
+                val maximumStep = gameInt("manor_reward_max_step", 50).coerceAtLeast(minimumStep)
+                val minimum = minimumStep * rewardTier
+                val maximum = maximumStep * rewardTier
+                val reward = Random.nextInt(minimum, maximum + 1)
                 grantedGold = reward
                 playerGold = profile.gold + reward
                 survivalDay = profile.survivalDay
                 dao.save(profile.copy(gold = playerGold, lastManorSearchDay = searchDay))
-                story = stories[((searchDay / 5) - 1) % stories.size]
+                story = stories[(searchCount - 1) % stories.size]
             }
             val resultStory = story ?: return@execute
             runOnUiThread {
@@ -1620,6 +1630,12 @@ class MainActivity : GameActivity() {
                 initialFloor = startFloor,
                 dungeonChestSpawnPercent = gameInt("dungeon_chest_spawn_percent", 25),
                 dungeonChestMimicPercent = gameInt("dungeon_chest_mimic_percent", 25),
+                fireBombDurationTurns = gameInt("fire_bomb_duration_turns", 3),
+                fireBombRelicBonusTurns = gameInt("fire_bomb_relic_bonus_turns", 1),
+                acidDurationTurns = gameInt("acid_duration_turns", 3),
+                acidDamagePerTurn = gameInt("acid_damage_per_turn", 3),
+                springBottleFillCount = gameInt("spring_bottle_fill_count", 1),
+                statueBottleFillCount = gameInt("statue_bottle_fill_count", 2),
                 uniqueArmorDamageThreshold = gameInt("unique_armor_damage_threshold", 10),
                 uniqueArmorDamageReductionPercent = gameInt("unique_armor_damage_reduction_percent", 50),
                 savedRunPayload = dungeonRunPayload,
@@ -1700,7 +1716,7 @@ class MainActivity : GameActivity() {
                 dao.clearEquippedCategories(currentPlayerId, listOf(category))
                 dao.findItem(currentPlayerId, "INVENTORY", code)?.let { dao.setEquipped(it.id) }
             }
-            ownedItems = dao.getForOwner(currentPlayerId)
+            ownedItems = currentCharacterItems(dao.getForOwner(currentPlayerId))
             if (category == "WEAPON") dungeonEquippedWeaponCode = code
         }
     }
@@ -1789,7 +1805,7 @@ class MainActivity : GameActivity() {
                 )
             }
         }
-        ownedItems = gameDatabase.ownedItemDao().getForOwner(pending.playerId)
+        ownedItems = currentCharacterItems(gameDatabase.ownedItemDao().getForOwner(pending.playerId))
         return DeathSettlement(
             deceasedName,
             generation,
@@ -1995,7 +2011,7 @@ class MainActivity : GameActivity() {
                         )
                     )
                 }
-                ownedItems = dao.getForOwner(currentPlayerId)
+                ownedItems = currentCharacterItems(dao.getForOwner(currentPlayerId))
             }
             runOnUiThread {
                 if (!settlementSucceeded) return@runOnUiThread

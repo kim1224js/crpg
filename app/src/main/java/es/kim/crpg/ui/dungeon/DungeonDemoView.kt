@@ -54,6 +54,12 @@ class DungeonDemoView(
     private val expandedWeaponDropPercent: Int = 8,
     private val dungeonChestSpawnPercent: Int = 25,
     private val dungeonChestMimicPercent: Int = 25,
+    private val fireBombDurationTurns: Int = 3,
+    private val fireBombRelicBonusTurns: Int = 1,
+    private val acidDurationTurns: Int = 3,
+    private val acidDamagePerTurn: Int = 3,
+    private val springBottleFillCount: Int = 1,
+    private val statueBottleFillCount: Int = 2,
     private val uniqueArmorDamageThreshold: Int = 10,
     private val uniqueArmorDamageReductionPercent: Int = 50,
     private val initialFloor: Int = 1,
@@ -100,6 +106,7 @@ class DungeonDemoView(
         var actionRow: Int = 0, var actionStartedAt: Long = 0L, var actionUntil: Long = 0L,
         var dying: Boolean = false, var droppedLoot: Boolean = false,
         var burnTurnsRemaining: Int = 0, var burnAppliedRound: Int = -1,
+        var corrosionTurnsRemaining: Int = 0, var corrosionAppliedRound: Int = -1,
         var blockedMoveTurns: Int = 0, var rootTurns: Int = 0,
         val bleedTurns: MutableList<Int> = mutableListOf(), var firstAttackUsed: Boolean = false,
         var revivedOnce: Boolean = false, var attackCooldown: Int = 0,
@@ -115,7 +122,7 @@ class DungeonDemoView(
         val droppedAt: Long = System.currentTimeMillis(),
         var openingStartedAt: Long = 0L
     )
-    private data class FireZone(val centerColumn: Int, val centerRow: Int, var remainingDamageTurns: Int = 2)
+    private data class FireZone(val centerColumn: Int, val centerRow: Int, var remainingDamageTurns: Int)
     private data class Projectile(
         val weaponCode: String, val fromColumn: Int, val fromRow: Int,
         val toColumn: Int, val toRow: Int, val startedAt: Long, val duration: Long
@@ -287,7 +294,7 @@ class DungeonDemoView(
     private var lastX = 0f
     private var lastY = 0f
     private var dragging = false
-    private var selectingFireBombTarget = false
+    private var selectedThrowableCode: String? = null
     private var impactColumn = -1
     private var impactRow = -1
     private var impactUntil = 0L
@@ -362,7 +369,8 @@ class DungeonDemoView(
                 val rect = tileRect(area, column, row)
                 drawFloorTile(canvas, rect, column, row)
                 when {
-                    selectingFireBombTarget && distance(player.column, player.row, column, row) in 1..3 -> drawTileFill(canvas, rect, 0x55E87824)
+                    selectedThrowableCode != null && distance(player.column, player.row, column, row) in
+                        1..throwableRange(selectedThrowableCode) -> drawTileFill(canvas, rect, 0x55E87824)
                     phase == Phase.PLAYER && inWeaponRange(column, row) && blocksMovement(column to row) -> drawTileFill(canvas, rect, 0x46B52A25)
                     obstacles.contains(column to row) -> drawTileFill(canvas, rect, 0x18191412)
                     phase == Phase.PLAYER && isAdjacent(column, row) && !occupied(column, row) -> drawTileFill(canvas, rect, 0x403A91D8)
@@ -785,7 +793,7 @@ class DungeonDemoView(
         val area = dungeonArea(); if (!area.contains(x, y)) return
         val column = floor(cameraColumn + (x - area.left) / (area.width() / visibleColumns)).toInt().coerceIn(0, columns - 1)
         val row = floor(cameraRow + (y - area.top) / (area.height() / visibleRows)).toInt().coerceIn(0, rows - 1)
-        if (selectingFireBombTarget) { throwFireBomb(column, row); return }
+        selectedThrowableCode?.let { throwConsumable(it, column, row); return }
         healingObjects.firstOrNull { column to row in occupiedCells(it) }?.let {
             if (monsters.none { monster -> monster.alive } && !it.used && !isAdjacentTo(it)) {
                 autoApproach(occupiedCells(it), "${it.definition.name}으로 자동 이동 중") { useHealingObject(it) }
@@ -857,14 +865,6 @@ class DungeonDemoView(
     }
 
     private fun continueExplorationAutoWalk(goals: Set<Pair<Int, Int>>) {
-        if (monsters.any { it.alive && it.hp > 0 && it.alerted }) {
-            autoWalking = false
-            pendingAutoWalkContinuation = null
-            phase = Phase.PLAYER
-            message = "몬스터가 반응해 자동 이동을 멈췄습니다"
-            invalidate()
-            return
-        }
         val path = findPathToGoals(goals)
         if (path == null || path.isEmpty()) {
             autoWalking = false
@@ -893,7 +893,7 @@ class DungeonDemoView(
             phase != Phase.PLAYER || autoWalking -> message = "현재는 대기할 수 없습니다"
             monsters.none { it.alive } -> message = "전투가 끝나 대기할 필요가 없습니다"
             else -> {
-                selectingFireBombTarget = false
+                selectedThrowableCode = null
                 phase = Phase.MONSTERS
                 message = "아무 행동 없이 1턴 대기합니다"
                 postDelayed({ beginMonsterTurns(1) }, combatDuration(260L))
@@ -929,9 +929,9 @@ class DungeonDemoView(
             item.category == "CONSUMABLE" -> actions += AntiqueGameDialog.Action("사용", primary = true) {
                 useDungeonInventoryItem(code)
             }
-            item.category in setOf("WEAPON", "HELMET", "ARMOR", "BOOTS", "AUXILIARY", "ACCESSORY") && !equipped ->
+            item.category in setOf("HELMET", "ARMOR", "BOOTS", "AUXILIARY", "ACCESSORY") && !equipped ->
                 actions += AntiqueGameDialog.Action("장착", primary = true) {
-                    if (item.category == "WEAPON") switchEquippedWeapon(code) else switchEquippedArmor(code)
+                    switchEquippedArmor(code)
                 }
         }
         if (!equipped) actions += AntiqueGameDialog.Action("버리기") { dropInventoryItem(slotIndex) }
@@ -942,6 +942,9 @@ class DungeonDemoView(
                 subtitle = "$gradeName · $categoryName${if (equipped) " · 장착 중" else ""}",
                 body = buildString {
                     append("수량  $quantity\n\n${item.detail ?: "추가 옵션 없음"}")
+                    if (item.category == "WEAPON" && !equipped) {
+                        append("\n\n※ 무기는 던전 안에서 교체할 수 없습니다. 출발 전에 장착해야 합니다.")
+                    }
                     if (item.category in ARMOR_CATEGORIES && item.grade in UNIQUE_PLUS_GRADES) {
                         append("\n\n등급 방호  피해 ${uniqueArmorDamageThreshold} 이상을 ${uniqueArmorDamageReductionPercent}% 경감")
                     }
@@ -1017,11 +1020,12 @@ class DungeonDemoView(
         }
         when (code) {
             "return_stone" -> showDungeonExitConfirmation()
-            "fire_bomb" -> {
-                selectingFireBombTarget = true
-                message = "화염병을 던질 중심 타일을 선택하세요 · 3×3 범위"
+            "fire_bomb", "acid_flask", "blast_bottle" -> {
+                selectedThrowableCode = code
+                message = "${itemByCode[code]?.name ?: "투척물"}을 던질 중심 타일을 선택하세요 · 3×3 범위"
                 invalidate()
             }
+            "healing_water" -> useHealingWater()
             "torch" -> useTorch()
             "camping_kit" -> useCampingKit()
             "mercenary_oil", "hunters_eye", "ironwall_oil", "demon_blood",
@@ -1454,42 +1458,55 @@ class DungeonDemoView(
         )
     }
 
-    private fun throwFireBomb(column: Int, row: Int) {
-        val fireBombRange = if (hasRelic("forgemaster_tongs")) 4 else 3
-        if (distance(player.column, player.row, column, row) !in 1..fireBombRange) {
-            message = "화염병은 ${fireBombRange}칸 이내의 타일에만 던질 수 있습니다"
+    private fun throwConsumable(code: String, column: Int, row: Int) {
+        val range = throwableRange(code)
+        if (distance(player.column, player.row, column, row) !in 1..range) {
+            message = "${itemByCode[code]?.name ?: "투척물"}은 ${range}칸 이내의 타일에만 던질 수 있습니다"
             invalidate(); return
         }
-        selectingFireBombTarget = false
-        consumeInventoryItem("fire_bomb")
-        fireZones += FireZone(column, row, if (hasRelic("forgemaster_tongs")) 3 else 2)
+        selectedThrowableCode = null
+        consumeInventoryItem(code)
+        val targets = monsters.filter {
+            it.alive && it.hp > 0 && abs(it.column - column) <= 1 && abs(it.row - row) <= 1
+        }
+        val actionMessage = when (code) {
+            "acid_flask" -> {
+                val immediateDamage = itemByCode[code]?.attackPower ?: 6
+                targets.forEach { monster ->
+                    damageMonsterFromFire(monster, immediateDamage)
+                    if (monster.hp > 0) {
+                        monster.corrosionAppliedRound = monsterRoundSequence
+                        monster.corrosionTurnsRemaining = max(monster.corrosionTurnsRemaining, acidDurationTurns)
+                    }
+                    showEffect("poison", monster)
+                }
+                "산성액 투척 · 즉시 피해 $immediateDamage · 부식 ${acidDurationTurns}턴"
+            }
+            "blast_bottle" -> {
+                val damage = itemByCode[code]?.attackPower ?: 12
+                targets.forEach { monster ->
+                    damageMonsterFromFire(monster, damage)
+                    showEffect("fire_burst", monster)
+                }
+                "폭탄병 폭발 · 3×3 범위에 피해 $damage"
+            }
+            else -> {
+                val duration = fireBombDurationTurns.coerceAtLeast(1) +
+                    if (hasRelic("forgemaster_tongs")) fireBombRelicBonusTurns.coerceAtLeast(0) else 0
+                fireZones += FireZone(column, row, duration)
+                "화염병 투척 · 3×3 지역이 ${duration}턴 동안 불타오릅니다"
+            }
+        }
         phase = Phase.MONSTERS
         playAction(player, 2, 620L)
-        message = "화염병 투척 · 3×3 지역이 2턴 동안 불타오릅니다"
+        message = actionMessage
+        persistRun()
         postDelayed({ beginMonsterTurns(1) }, combatDuration(620L))
         invalidate()
     }
 
-    private fun switchEquippedWeapon(code: String) {
-        if (phase != Phase.PLAYER) {
-            message = "몬스터 행동이 끝난 뒤 장비를 교체할 수 있습니다"
-            invalidate(); return
-        }
-        val weapon = weapons.firstOrNull { it.code == code && itemCount(code) > 0 } ?: return
-        if (equippedWeapon?.code == weapon.code) {
-            message = "이미 ${weapon.name}을 착용 중입니다"
-            invalidate(); return
-        }
-        selectingFireBombTarget = false
-        equippedWeapon = weapon
-        onEquipItem(code, "WEAPON")
-        player.sheet = weaponSheets.getValue(weapon.code)
-        phase = Phase.MONSTERS
-        playAction(player, 0, 520L)
-        message = "${weapon.name}으로 교체 · 1행동 소모"
-        postDelayed({ beginMonsterTurns(1) }, combatDuration(520L))
-        invalidate()
-    }
+    private fun throwableRange(code: String?): Int =
+        if (code == "fire_bomb" && hasRelic("forgemaster_tongs")) 4 else 3
 
     private fun switchEquippedArmor(code: String) {
         if (phase != Phase.PLAYER) {
@@ -1545,6 +1562,23 @@ class DungeonDemoView(
         playAction(player, 0, 720L)
         message = "야영 완료 · 체력 $recovered 회복"
         postDelayed({ beginMonsterTurns(1) }, combatDuration(720L))
+        invalidate()
+    }
+
+    private fun useHealingWater() {
+        if (player.hp >= player.maxHp) {
+            message = "이미 체력이 가득 차 있습니다"
+            invalidate(); return
+        }
+        val before = player.hp
+        val healPercent = (itemByCode["healing_water"]?.healthBonus ?: 50).coerceIn(1, 100)
+        player.hp = min(player.maxHp, player.hp + (player.maxHp * healPercent + 99) / 100)
+        consumeInventoryItem("healing_water")
+        phase = Phase.MONSTERS
+        playAction(player, 0, 520L)
+        message = "회복수 병 사용 · HP ${player.hp - before} 회복"
+        persistRun()
+        postDelayed({ beginMonsterTurns(1) }, combatDuration(520L))
         invalidate()
     }
 
@@ -2216,6 +2250,7 @@ class DungeonDemoView(
         monsterRoundSequence++
         tickFireZones()
         tickBurningDamage()
+        tickCorrosionDamage()
         tickBleedingDamage()
         runMonsterRound(0)
     }
@@ -2261,11 +2296,26 @@ class DungeonDemoView(
             it.alive && it.hp > 0 && it.burnTurnsRemaining > 0 && it.burnAppliedRound < monsterRoundSequence
         }.forEach { monster ->
             burningTargets++
-            damageMonsterFromFire(monster, 3)
+            damageMonsterFromFire(monster, acidDamagePerTurn)
             monster.burnTurnsRemaining--
             if (monster.hp == 0) monster.burnTurnsRemaining = 0
         }
         if (burningTargets > 0) message = "화상 피해 · 몬스터 ${burningTargets}마리에게 3 피해"
+    }
+
+    private fun tickCorrosionDamage() {
+        var targets = 0
+        monsters.filter {
+            it.alive && it.hp > 0 && it.corrosionTurnsRemaining > 0 &&
+                it.corrosionAppliedRound < monsterRoundSequence
+        }.forEach { monster ->
+            targets++
+            damageMonsterFromFire(monster, 3)
+            monster.corrosionTurnsRemaining--
+            showEffect("poison", monster)
+            if (monster.hp == 0) monster.corrosionTurnsRemaining = 0
+        }
+        if (targets > 0) message = "부식 피해 · 몬스터 ${targets}마리에게 $acidDamagePerTurn 피해"
     }
 
     private fun damageMonsterFromFire(monster: UnitSprite, damage: Int) {
@@ -2336,6 +2386,13 @@ class DungeonDemoView(
     private fun performMonsterAction(monster: UnitSprite): Long {
         val dist = distance(monster.column, monster.row, player.column, player.row)
         val definition = monster.definition ?: return 0L
+        if (monster.alerted && dist > definition.sensitivity) {
+            monster.alerted = false
+            monster.blockedMoveTurns = 0
+            focusedMonster = null
+            message = "${monster.name}이 추적을 포기했습니다"
+            return 420L
+        }
         if (!monster.alerted) {
             val seesPlayer = dist <= definition.sensitivity &&
                 hasLineOfSight(monster.column, monster.row, player.column, player.row)
@@ -2872,7 +2929,7 @@ class DungeonDemoView(
         when {
             obj.used -> message = "${obj.definition.name}의 힘은 이미 사라졌습니다"
             !isAdjacentTo(obj) -> message = "${obj.definition.name} 바로 옆으로 이동해야 합니다"
-            player.hp >= player.maxHp -> message = "이미 체력이 가득 차 있습니다"
+            player.hp >= player.maxHp -> fillHealingBottles(obj)
             else -> {
                 val before = player.hp
                 val healAmount = if (obj.definition.healPercent >= 100) {
@@ -2888,6 +2945,29 @@ class DungeonDemoView(
             }
         }
         invalidate()
+    }
+
+    private fun fillHealingBottles(obj: HealingObject) {
+        val requested = if (obj.definition.code == "angel_statue") statueBottleFillCount else springBottleFillCount
+        val filled = min(requested, itemCount("empty_bottle"))
+        if (filled <= 0) {
+            message = "체력이 가득 찼습니다 · 채울 빈병이 없습니다"
+            return
+        }
+        val emptyStackWillRemain = itemCount("empty_bottle") > filled
+        if (itemCount("healing_water") == 0 && emptyStackWillRemain && inventorySlotsUsed() >= inventoryCapacity) {
+            message = "회복수 병을 담을 인벤토리 칸이 없습니다"
+            return
+        }
+        repeat(filled) { consumeInventoryItem("empty_bottle") }
+        addInventorySlots("healing_water", filled)
+        inventoryCounts["healing_water"] = itemCount("healing_water") + filled
+        acquiredCounts["healing_water"] = (acquiredCounts["healing_water"] ?: 0) + filled
+        obj.used = true
+        phase = Phase.MONSTERS
+        message = "${obj.definition.name}에서 회복수 병 ${filled}개를 채웠습니다"
+        persistRun()
+        postDelayed({ beginMonsterTurns(1) }, combatDuration(520L))
     }
 
     private fun drawHealingObject(canvas: Canvas, area: RectF, obj: HealingObject) {
@@ -3528,6 +3608,8 @@ class DungeonDemoView(
                 .put("code", monster.definition?.code).put("column", monster.column).put("row", monster.row)
                 .put("hp", monster.hp).put("alive", monster.alive).put("opening", monster.spiderOpeningAttack)
                 .put("root", monster.rootTurns).put("burn", monster.burnTurnsRemaining)
+                .put("corrosion", monster.corrosionTurnsRemaining)
+                .put("corrosionAppliedRound", monster.corrosionAppliedRound)
                 .put("blocked", monster.blockedMoveTurns).put("cooldown", monster.attackCooldown)
                 .put("alerted", monster.alerted).put("chestGrade", monster.guaranteedChestGrade ?: JSONObject.NULL)) }
         })
@@ -3619,6 +3701,8 @@ class DungeonDemoView(
                 definition = definition, hp = data.getInt("hp"), maxHp = definition.maxHp,
                 alive = data.getBoolean("alive"), spiderOpeningAttack = data.optBoolean("opening", false),
                 rootTurns = data.optInt("root"), burnTurnsRemaining = data.optInt("burn"),
+                corrosionTurnsRemaining = data.optInt("corrosion"),
+                corrosionAppliedRound = data.optInt("corrosionAppliedRound", -1),
                 blockedMoveTurns = data.optInt("blocked"), attackCooldown = data.optInt("cooldown"),
                 alerted = data.optBoolean("alerted", false),
                 guaranteedChestGrade = data.optString("chestGrade").takeIf { it.isNotBlank() && it != "null" })

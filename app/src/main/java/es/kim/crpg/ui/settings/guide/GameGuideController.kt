@@ -117,8 +117,10 @@ class GameGuideController(
                     dao.getConfigInt("red_moon_drop_rate_percent") ?: 200,
                     dao.getConfigInt("red_moon_return_floor_interval") ?: 5,
                     dao.getConfigInt("traveling_merchant_interval_days") ?: 5,
-                    5,
-                    10
+                    dao.getConfigInt("manor_search_interval_days") ?: 5,
+                    dao.getConfigInt("manor_reward_group_size") ?: 4,
+                    dao.getConfigInt("manor_reward_min_step") ?: 10,
+                    dao.getConfigInt("manor_reward_max_step") ?: 50
                 )
                 eventRules = rules
                 activity.runOnUiThread {
@@ -374,10 +376,19 @@ class GameGuideController(
                 "저택 수색",
                 "생존 ${rules.manorIntervalDays}일마다 저택을 다시 수색할 수 있습니다.\n\n" +
                     "발생 주기  생존 ${rules.manorIntervalDays}일마다\n" +
-                    "기본 보상  ${rules.manorGoldReward}G\n" +
+                    "1~${rules.manorRewardGroupSize}회 보상  ${rules.manorRewardMinStep}~${rules.manorRewardMaxStep}G\n" +
+                    "${rules.manorRewardGroupSize + 1}~${rules.manorRewardGroupSize * 2}회 보상  ${rules.manorRewardMinStep * 2}~${rules.manorRewardMaxStep * 2}G\n" +
+                    "이후 ${rules.manorRewardGroupSize}회마다 최소·최대 보상 +${rules.manorRewardMinStep}G·+${rules.manorRewardMaxStep}G\n" +
                     "이용 장소  마을 저택\n\n" +
                     "수색을 마친 날짜는 저장되며 같은 주기의 보상을 반복해서 받을 수 없습니다.",
                 0xFF5D4527.toInt()
+            ), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = activity.dp(14) })
+            addView(eventCard(
+                "선대의 유산",
+                "장비는 계정이 아니라 현재 세대의 캐릭터 ID에 귀속됩니다.\n\n" +
+                    "사망하면 인벤토리와 착용 장비는 소멸하고, 창고에서는 무작위 최대 5개 슬롯만 유산으로 남습니다.\n" +
+                    "새 캐릭터를 만든 뒤 저택에서 유산을 수령해야 새 캐릭터의 창고에 귀속됩니다. 수령 전에는 장착·판매·감정할 수 없습니다.",
+                0xFF695238.toInt()
             ), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = activity.dp(14) })
             addView(eventCard(
                 "떠돌이 상인",
@@ -568,7 +579,9 @@ class GameGuideController(
         val returnInterval: Int,
         val merchantIntervalDays: Int,
         val manorIntervalDays: Int,
-        val manorGoldReward: Int
+        val manorRewardGroupSize: Int,
+        val manorRewardMinStep: Int,
+        val manorRewardMaxStep: Int
     )
 
     private enum class EquipmentFilter(val label: String) {

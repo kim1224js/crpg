@@ -23,7 +23,7 @@ import androidx.room.PrimaryKey
 data class OwnedItemEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0L,
     val ownerId: Long,
-    val characterId: Long = ownerId,
+    @androidx.room.ColumnInfo(defaultValue = "0") val characterId: Long = ownerId,
     val itemCode: String,
     val displayName: String,
     val quantity: Int,

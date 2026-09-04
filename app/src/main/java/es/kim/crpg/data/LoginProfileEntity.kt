@@ -1,6 +1,7 @@
 package es.kim.crpg.data
 
 import androidx.room.Entity
+import androidx.room.ColumnInfo
 import androidx.room.PrimaryKey
 
 @Entity(tableName = "login_profile")
@@ -19,5 +20,5 @@ data class LoginProfileEntity(
     val pendingEstateKeptNames: String? = null,
     val lastMerchantFreeDay: Int = 0,
     val merchantFreeClaimMask: Int = 0,
-    val activeCharacterId: Long = id
+    @ColumnInfo(defaultValue = "0") val activeCharacterId: Long = id
 )

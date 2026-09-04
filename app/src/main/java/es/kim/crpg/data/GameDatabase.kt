@@ -16,7 +16,7 @@ import es.kim.crpg.game.catalog.ExpandedWeaponCatalog
         MonsterFloorSpawnEntity::class, DungeonInteractableDefinitionEntity::class,
         DungeonInteractableSpawnEntity::class, DungeonRunEntity::class
     ],
-    version = 45,
+    version = 48,
     exportSchema = true
 )
 abstract class GameDatabase : RoomDatabase() {
@@ -334,6 +334,35 @@ abstract class GameDatabase : RoomDatabase() {
                 db.execSQL("UPDATE login_profile SET activeCharacterId = id WHERE activeCharacterId = 0")
                 db.execSQL("ALTER TABLE owned_item ADD COLUMN characterId INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("UPDATE owned_item SET characterId = ownerId WHERE characterId = 0")
+                db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('manor_search_interval_days',5,NULL,NULL)")
+                db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('manor_reward_group_size',4,NULL,NULL)")
+                db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('manor_reward_min_step',10,NULL,NULL)")
+                db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('manor_reward_max_step',50,NULL,NULL)")
+            }
+        }
+
+        private val MIGRATION_45_46 = object : Migration(45, 46) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("UPDATE item_definition SET detail = '3×3 화염 지대 · 3턴 · 턴당 피해 5 · 화상 3턴간 턴당 피해 3', specialEffect = 'FIRE_ZONE_3X3_3T_BURN_3T' WHERE code = 'fire_bomb'")
+                db.execSQL("UPDATE item_definition SET detail = '화염병 사거리 4, 화염 지대 지속시간 +1턴으로 강화' WHERE code = 'forgemaster_tongs'")
+                db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('fire_bomb_duration_turns',3,NULL,NULL)")
+                db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('fire_bomb_relic_bonus_turns',1,NULL,NULL)")
+            }
+        }
+
+        private val MIGRATION_46_47 = object : Migration(46, 47) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                seedThrowableConsumables(db)
+            }
+        }
+
+        private val MIGRATION_47_48 = object : Migration(47, 48) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("UPDATE item_definition SET storeType = 'GENERAL', dropRate = .10 WHERE code = 'empty_bottle'")
+                db.execSQL("UPDATE item_definition SET storeType = 'GENERAL', dropRate = .05 WHERE code = 'healing_water'")
+                db.execSQL("UPDATE item_definition SET storeType = 'GENERAL', dropRate = .03 WHERE code = 'acid_flask'")
+                db.execSQL("UPDATE item_definition SET storeType = 'GENERAL', dropRate = .02 WHERE code = 'blast_bottle'")
+                db.execSQL("DELETE FROM monster_drop WHERE itemCode IN ('acid_flask','blast_bottle')")
             }
         }
 
@@ -360,7 +389,11 @@ abstract class GameDatabase : RoomDatabase() {
                 arrayOf("torch", "횃불", "CONSUMABLE", "NORMAL", "GENERAL", 1, 5, "ui/items/item_torch.png", 1, 99, 0, 0, 0, 0, "사용한 현재 층 동안 모든 무기 공격력 +1", "FLOOR_ATTACK_PLUS_1", .10, null, 1),
                 arrayOf("return_stone", "귀환석", "CONSUMABLE", "NORMAL", "GENERAL", 2, 1, "ui/items/item_return_stone.png", 1, 99, 0, 0, 0, 0, "현재 층에서 마을로 귀환", "생존 중 사용 가능", .10, null, 2),
                 arrayOf("camping_kit", "야영 세트", "CONSUMABLE", "NORMAL", "GENERAL", 3, 1, "ui/items/item_camping_kit.png", 1, 99, 0, 0, 0, 0, "체력을 모두 회복", "야영 시 최대 체력 회복", .10, null, 3),
-                arrayOf("fire_bomb", "화염병", "CONSUMABLE", "NORMAL", "GENERAL", 2, 1, "ui/items/item_fire_bomb.png", 1, 99, 5, 0, 0, 0, "3×3 화염 지대 · 2턴 · 턴당 피해 5 · 화상 3턴간 턴당 피해 3", "FIRE_ZONE_3X3_2T_BURN_3T", .10, null, 4),
+                arrayOf("fire_bomb", "화염병", "CONSUMABLE", "NORMAL", "GENERAL", 2, 1, "ui/items/item_fire_bomb.png", 1, 99, 5, 0, 0, 0, "3×3 화염 지대 · 3턴 · 턴당 피해 5 · 화상 3턴간 턴당 피해 3", "FIRE_ZONE_3X3_3T_BURN_3T", .10, null, 4),
+                arrayOf("empty_bottle", "빈병", "CONSUMABLE", "NORMAL", "GENERAL", 5, 5, "ui/items/item_empty_bottle.png", 1, 99, 0, 0, 0, 0, "체력이 가득 찬 상태에서 회복의 샘물은 1개, 천사상은 2개를 회복수 병으로 충전", "EMPTY_HEALING_BOTTLE", .10, null, 5),
+                arrayOf("healing_water", "회복수 병", "CONSUMABLE", "HIGH", "GENERAL", 5, 1, "ui/items/item_healing_water.png", 1, 99, 0, 0, 0, 50, "사용 시 최대 HP의 50% 회복", "HEAL_MAX_HP_50", .05, null, 6),
+                arrayOf("acid_flask", "산성액", "CONSUMABLE", "RARE", "GENERAL", 20, 1, "ui/items/item_acid_flask.png", 1, 99, 6, 0, 3, 0, "사거리 3 · 3×3 즉시 피해 6 · 3턴간 턴당 부식 피해 3", "ACID_3X3_DAMAGE_6_DOT_3X3", .03, null, 7),
+                arrayOf("blast_bottle", "폭탄병", "CONSUMABLE", "EPIC", "GENERAL", 35, 1, "ui/items/item_blast_bottle.png", 1, 99, 12, 0, 3, 0, "사거리 3 · 3×3 범위에 즉시 피해 12", "BLAST_3X3_DAMAGE_12", .02, null, 8),
                 arrayOf("crude_sword", "조잡한 검", "WEAPON", "NORMAL", "BLACKSMITH", 5, 1, "ui/items/item_crude_sword.png", 0, 1, 3, 1, 1, 0, "공격 3 · 1턴 · 주변 1칸의 모든 적 공격", "ADJACENT_SWEEP", .05, "ui/dungeon/player/player_sword_animation_sheet.png", 10),
                 arrayOf("crude_spear", "조잡한 창", "WEAPON", "NORMAL", "BLACKSMITH", 5, 1, "ui/items/item_crude_spear.png", 0, 1, 4, 2, 3, 0, "공격 4 · 2턴 · 직선 사거리 3 전체 찌르기", "LINE_THRUST", .05, "ui/dungeon/player/player_spear_animation_sheet.png", 11),
                 arrayOf("crude_bow", "조잡한 활", "WEAPON", "NORMAL", "BLACKSMITH", 5, 1, "ui/items/item_crude_bow.png", 0, 1, 3, 1, 4, 0, "공격 3 · 1턴 · 사거리 4 · 50% 확률로 추가 사격", "DOUBLE_SHOT_50", .05, "ui/dungeon/player/player_bow_animation_sheet.png", 12),
@@ -372,6 +405,7 @@ abstract class GameDatabase : RoomDatabase() {
 
             seedRareMonsterItems(db)
             seedFloorConsumables(db)
+            seedThrowableConsumables(db)
             seedExpandedWeapons(db)
             seedTravelingMerchantBoxes(db)
             seedFloorsSixToTen(db)
@@ -402,9 +436,19 @@ abstract class GameDatabase : RoomDatabase() {
                 arrayOf("base_player_hp", 10, null, null),
                 arrayOf("inventory_capacity", 25, null, null),
                 arrayOf("storage_capacity", 20, null, null),
+                arrayOf("manor_search_interval_days", 5, null, null),
+                arrayOf("manor_reward_group_size", 4, null, null),
+                arrayOf("manor_reward_min_step", 10, null, null),
+                arrayOf("manor_reward_max_step", 50, null, null),
                 arrayOf("base_vision", 2, null, null),
                 arrayOf("torch_vision", 5, null, null),
                 arrayOf("torch_duration_turns", 10, null, null),
+                arrayOf("fire_bomb_duration_turns", 3, null, null),
+                arrayOf("fire_bomb_relic_bonus_turns", 1, null, null),
+                arrayOf("acid_duration_turns", 3, null, null),
+                arrayOf("acid_damage_per_turn", 3, null, null),
+                arrayOf("spring_bottle_fill_count", 1, null, null),
+                arrayOf("statue_bottle_fill_count", 2, null, null),
                 arrayOf("dungeon_monster_count_min", 5, null, null),
                 arrayOf("dungeon_monster_count_max", 10, null, null),
                 arrayOf("return_stone_combat_lock_floor", 11, null, null),
@@ -424,6 +468,20 @@ abstract class GameDatabase : RoomDatabase() {
             db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('red_moon_monster_attack_percent',150,NULL,NULL)")
             db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('red_moon_drop_rate_percent',200,NULL,NULL)")
             db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('red_moon_return_floor_interval',5,NULL,NULL)")
+        }
+
+        private fun seedThrowableConsumables(db: SupportSQLiteDatabase) {
+            val itemSql = "INSERT OR REPLACE INTO item_definition VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+            listOf<Array<Any?>>(
+                arrayOf("empty_bottle", "빈병", "CONSUMABLE", "NORMAL", "GENERAL", 5, 5, "ui/items/item_empty_bottle.png", 1, 99, 0, 0, 0, 0, "체력이 가득 찬 상태에서 회복의 샘물은 1개, 천사상은 2개를 회복수 병으로 충전", "EMPTY_HEALING_BOTTLE", .10, null, 5),
+                arrayOf("healing_water", "회복수 병", "CONSUMABLE", "HIGH", "GENERAL", 5, 1, "ui/items/item_healing_water.png", 1, 99, 0, 0, 0, 50, "사용 시 최대 HP의 50% 회복", "HEAL_MAX_HP_50", .05, null, 6),
+                arrayOf("acid_flask", "산성액", "CONSUMABLE", "RARE", "GENERAL", 20, 1, "ui/items/item_acid_flask.png", 1, 99, 6, 0, 3, 0, "사거리 3 · 3×3 즉시 피해 6 · 3턴간 턴당 부식 피해 3", "ACID_3X3_DAMAGE_6_DOT_3X3", .03, null, 7),
+                arrayOf("blast_bottle", "폭탄병", "CONSUMABLE", "EPIC", "GENERAL", 35, 1, "ui/items/item_blast_bottle.png", 1, 99, 12, 0, 3, 0, "사거리 3 · 3×3 범위에 즉시 피해 12", "BLAST_3X3_DAMAGE_12", .02, null, 8)
+            ).forEach { db.execSQL(itemSql, it) }
+            db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('acid_duration_turns',3,NULL,NULL)")
+            db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('acid_damage_per_turn',3,NULL,NULL)")
+            db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('spring_bottle_fill_count',1,NULL,NULL)")
+            db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('statue_bottle_fill_count',2,NULL,NULL)")
         }
 
         private fun seedExpandedWeapons(db: SupportSQLiteDatabase) {
@@ -683,7 +741,7 @@ abstract class GameDatabase : RoomDatabase() {
                     context.applicationContext,
                     GameDatabase::class.java,
                     "crpg_game.db"
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45).addCallback(CREATE_AND_SEED).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45, MIGRATION_45_46, MIGRATION_46_47, MIGRATION_47_48).addCallback(CREATE_AND_SEED).build().also { instance = it }
             }
         }
     }
