@@ -10,7 +10,7 @@ data class LoginProfileEntity(
     val playerName: String,
     val autoLogin: Boolean,
     val lastLoginAt: Long,
-    val gold: Int = 10,
+    val gold: Int = 20,
     val introSeen: Boolean = false,
     val survivalDay: Int = 1,
     val lastManorSearchDay: Int = 0,

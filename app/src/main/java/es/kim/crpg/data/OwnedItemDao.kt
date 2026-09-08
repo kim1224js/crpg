@@ -31,6 +31,9 @@ interface OwnedItemDao {
     @Query("UPDATE owned_item SET characterId = :characterId, container = 'STORAGE', slotIndex = :slotIndex, isEquipped = 0 WHERE id = :id")
     fun claimEstateItem(id: Long, characterId: Long, slotIndex: Int)
 
+    @Query("UPDATE owned_item SET characterId = :characterId, isEquipped = 0 WHERE ownerId = :ownerId AND container = 'STORAGE'")
+    fun inheritAllStorage(ownerId: Long, characterId: Long)
+
     @Query("UPDATE owned_item SET container = 'ESTATE', slotIndex = :slotIndex, isEquipped = 0 WHERE id = :id")
     fun preserveAsEstate(id: Long, slotIndex: Int)
 

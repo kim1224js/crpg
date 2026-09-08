@@ -26,7 +26,8 @@ class ItemGridView(
     private val assetPath: (OwnedItemEntity) -> String,
     private val gradeColor: (String) -> Int,
     private val isConsumable: (String) -> Boolean,
-    private val onItemClick: (OwnedItemEntity) -> Unit,
+    private val movingItemId: Long? = null,
+    private val onSlotClick: (OwnedItemEntity?, String, Int) -> Unit,
     private val onItemDrop: (DraggedItem, String, Int) -> Unit
 ) : GridLayout(context) {
 
@@ -48,6 +49,9 @@ class ItemGridView(
         HexagonSlotView(context, GameUiTheme.LEATHER_DARK, item?.let { gradeColor(it.itemCode) } ?: GameUiTheme.GOLD_DARK).apply {
             contentDescription = item?.let { "${it.displayName}, 길게 눌러 이동" } ?: "빈 아이템 칸"
             setOnDragListener { view, event -> handleDrag(view, event, slotIndex) }
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onSlotClick(item, container, slotIndex) }
             if (item != null) {
                 addView(ImageView(context).apply {
                     scaleType = ImageView.ScaleType.CENTER_CROP
@@ -56,9 +60,7 @@ class ItemGridView(
                 if (isConsumable(item.itemCode)) addView(quantity(item.quantity), FrameLayout.LayoutParams(dp(28), dp(24), Gravity.END or Gravity.BOTTOM).apply {
                     marginEnd = dp(7); bottomMargin = dp(2)
                 })
-                isClickable = true
-                isFocusable = true
-                setOnClickListener { onItemClick(item) }
+                if (item.id == movingItemId) alpha = .45f
                 setOnLongClickListener {
                     val payload = DraggedItem(item.id, item.container, item.slotIndex)
                     startDragAndDrop(ClipData.newPlainText("item", item.id.toString()), DragShadowBuilder(this), payload, 0)

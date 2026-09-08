@@ -10,18 +10,15 @@ room {
 
 android {
     namespace = "es.kim.crpg"
-    compileSdk {
-        version = release(36) {
-            minorApiLevel = 1
-        }
-    }
+    compileSdk = 37
+    ndkVersion = "29.0.14206865"
 
     defaultConfig {
         applicationId = "es.kim.crpg"
-        minSdk = 36
-        targetSdk = 36
-        versionCode = 2
-        versionName = "1.1"
+        minSdk = 35
+        targetSdk = 37
+        versionCode = 6
+        versionName = "1.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

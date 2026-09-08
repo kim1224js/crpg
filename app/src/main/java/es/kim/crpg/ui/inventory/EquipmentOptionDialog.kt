@@ -30,6 +30,7 @@ class EquipmentOptionDialog(private val context: Context) {
         baseDurability: Int = 3,
         appraisedAttackPower: Int? = null,
         salePrice: Int? = null,
+        onMove: (() -> Unit)? = null,
         onSell: (() -> Unit)? = null
     ) {
         val dialog = Dialog(context).apply { setCanceledOnTouchOutside(true) }
@@ -102,6 +103,15 @@ class EquipmentOptionDialog(private val context: Context) {
             panel.addView(label(effect, 0xFFFFD77A.toInt(), 15f).apply {
                 setPadding(dp(10), dp(9), dp(10), dp(9)); background = panel(0xE63A2113.toInt(), goldDark, 8f, 1)
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
+        }
+        if (onMove != null) {
+            panel.addView(Button(context).apply {
+                text = "이동"
+                setTextColor(0xFF241607.toInt()); textSize = 16f; typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER; minHeight = 0; stateListAnimator = null
+                background = panel(gold, 0xFFFFD980.toInt(), 7f, 2)
+                setOnClickListener { dialog.dismiss(); onMove() }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)).apply { topMargin = dp(14) })
         }
         val scroll = context.gameScrollView(panel)
         dialog.setContentView(scroll)

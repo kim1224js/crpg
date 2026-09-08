@@ -253,13 +253,13 @@ class GameGuideController(
     private fun createRulesView(): View {
         val body = """
             [탐험과 사망]
-            캐릭터의 기본 체력은 10입니다. 창고에 둔 장비와 골드는 사망해도 유지되지만, 던전에 가져간 장비와 소지품은 잃습니다. 새 캐릭터는 가문의 재산 중 무작위 아이템 5개만 이어받습니다.
+            캐릭터의 기본 체력은 10입니다. 사망하면 골드는 시작 자금 20G로 초기화되고, 던전에 가져간 장비와 소지품은 잃습니다. 창고의 모든 아이템은 다음 세대가 그대로 이어받습니다.
 
             [턴과 행동]
             한 턴에는 이동, 공격, 아이템 사용, 장비 교체, 대기 중 하나만 실행합니다. 무기마다 사거리와 소모 턴이 다르며 장애물 뒤의 대상은 공격하지 못할 수 있습니다. 몬스터의 공격 예고와 민감도 범위를 확인하세요.
 
             [장비와 인벤토리]
-            던전 인벤토리는 25칸입니다. 던전 안에서는 무기를 교체할 수 없고 방어구·투구·신발·보조장비·악세서리 교체는 1행동을 소비합니다. 일반 장비 수명은 3회이며 등급이 높을수록 기본 수명이 늘어납니다.
+            던전 인벤토리는 25칸입니다. 던전 안에서는 무기를 교체할 수 없고 방어구·투구·신발·망토·보조장비·악세서리·유물 교체는 1행동을 소비합니다. 모든 아이템은 1행동을 소비해 한 개씩 버릴 수 있고 장착품은 해제된 뒤 발밑에 놓입니다. 일반 장비 수명은 3회이며 등급이 높을수록 기본 수명이 늘어납니다. 고급 이상 장비는 감정소에서 확인해야 사용할 수 있습니다.
 
             [방어]
             조잡한 갑옷은 인접 일반 공격, 조잡한 투구는 원거리 공격을 각각 30% 확률로 막습니다. 유니크 이상 투구·갑옷·신발은 10 이상의 피해를 50% 줄이며 여러 개를 착용해도 중첩되지 않습니다.
@@ -389,8 +389,8 @@ class GameGuideController(
             addView(eventCard(
                 "선대의 유산",
                 "장비는 계정이 아니라 현재 세대의 캐릭터 ID에 귀속됩니다.\n\n" +
-                    "사망하면 인벤토리와 착용 장비는 소멸하고, 창고에서는 무작위 최대 5개 슬롯만 유산으로 남습니다.\n" +
-                    "새 캐릭터를 만든 뒤 저택에서 유산을 수령해야 새 캐릭터의 창고에 귀속됩니다. 수령 전에는 장착·판매·감정할 수 없습니다.",
+                    "사망하면 인벤토리와 착용 장비는 소멸하지만 창고의 모든 아이템과 수량은 보존됩니다.\n" +
+                    "다음 세대 캐릭터를 만들면 보존된 창고 물품이 자동으로 새 캐릭터에게 귀속됩니다.",
                 0xFF695238.toInt()
             ), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = activity.dp(14) })
             addView(eventCard(
@@ -554,7 +554,7 @@ class GameGuideController(
 
     private fun categoryName(category: String) = when (category) {
         "WEAPON" -> "무기"; "ARMOR" -> "갑옷"; "HELMET" -> "투구"; "BOOTS" -> "신발"
-        "AUXILIARY" -> "보조장비"; "ACCESSORY" -> "악세서리"; "RELIC" -> "유물"; else -> category
+        "CLOAK" -> "망토"; "AUXILIARY" -> "보조장비"; "ACCESSORY" -> "악세서리"; "RELIC" -> "유물"; else -> category
     }
 
     private fun gradeName(grade: String) = when (grade) {
@@ -604,7 +604,7 @@ class GameGuideController(
     }
 
     private companion object {
-        val EQUIPMENT_CATEGORIES = setOf("WEAPON", "ARMOR", "HELMET", "BOOTS", "AUXILIARY", "ACCESSORY", "RELIC")
+        val EQUIPMENT_CATEGORIES = setOf("WEAPON", "ARMOR", "HELMET", "BOOTS", "CLOAK", "AUXILIARY", "ACCESSORY", "RELIC")
         val EQUIPMENT_FILTERS = EquipmentFilter.entries.toList()
         val GRADE_ORDER = mapOf("NORMAL" to 0, "HIGH" to 1, "RARE" to 2, "EPIC" to 3, "UNIQUE" to 4, "LEGENDARY" to 5, "MYTHIC" to 6)
         const val IMAGE_WIDTH = 72

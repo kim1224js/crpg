@@ -59,7 +59,7 @@ object ItemCatalog {
         }
         val categoryName = when (item.category) {
             "WEAPON" -> "무기"; "ARMOR" -> "방어구 · 갑옷"; "HELMET" -> "방어구 · 투구"
-            "BOOTS" -> "방어구 · 신발"; "AUXILIARY" -> "보조장비"
+            "BOOTS" -> "방어구 · 신발"; "CLOAK" -> "방어구 · 망토"; "AUXILIARY" -> "보조장비"
             "ACCESSORY" -> "액세서리"; "RELIC" -> "유물 · 소지 시 발동"; else -> item.category
         }
         val effectDescription = if ('|' in item.specialEffect.orEmpty()) item.detail else when (item.specialEffect) {

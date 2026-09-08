@@ -7,6 +7,8 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import es.kim.crpg.game.catalog.ExpandedWeaponCatalog
+import es.kim.crpg.game.catalog.ExpandedArmorCatalog
+import es.kim.crpg.game.catalog.ExpandedSupplementCatalog
 
 @Database(
     entities = [
@@ -16,7 +18,7 @@ import es.kim.crpg.game.catalog.ExpandedWeaponCatalog
         MonsterFloorSpawnEntity::class, DungeonInteractableDefinitionEntity::class,
         DungeonInteractableSpawnEntity::class, DungeonRunEntity::class
     ],
-    version = 50,
+    version = 58,
     exportSchema = true
 )
 abstract class GameDatabase : RoomDatabase() {
@@ -376,6 +378,67 @@ abstract class GameDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_50_51 = object : Migration(50, 51) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('starting_gold', 20, NULL, NULL)")
+            }
+        }
+
+        private val MIGRATION_51_52 = object : Migration(51, 52) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "INSERT OR REPLACE INTO item_definition VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    arrayOf<Any?>(
+                        "welcome_weapon_box", "웰컴팩 무기 상자", "CONSUMABLE", "RARE", "WELCOME", 0, 1,
+                        "ui/dungeon/loot/chest_rare.png", 1, 1, 0, 0, 0, 0,
+                        "전체 무기 중 레어 이상 장비 1개를 확정 획득", "GACHA_BOX_WELCOME_WEAPON", 0.0, null, 299
+                    )
+                )
+            }
+        }
+
+        private val MIGRATION_52_53 = object : Migration(52, 53) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('base_vision', 5, NULL, NULL)")
+                db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('torch_vision', 7, NULL, NULL)")
+                db.execSQL("UPDATE item_definition SET detail = '사용한 현재 층 동안 모든 무기 공격력 +1 · 시야 +2' WHERE code = 'torch'")
+            }
+        }
+
+        private val MIGRATION_53_54 = object : Migration(53, 54) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("UPDATE item_definition SET basePrice = 10 WHERE code = 'camping_kit'")
+                db.execSQL("UPDATE item_definition SET attackRange = attackRange + 1 WHERE code = 'crude_gun'")
+                db.execSQL("UPDATE item_definition SET detail = '공격 5 · 2턴 · 사거리 6 · 처치 시 직선 관통' WHERE code = 'crude_gun'")
+                seedExpandedWeapons(db)
+            }
+        }
+
+        private val MIGRATION_54_55 = object : Migration(54, 55) {
+            override fun migrate(db: SupportSQLiteDatabase) = seedExpandedArmor(db)
+        }
+
+        private val MIGRATION_55_56 = object : Migration(55, 56) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                seedExpandedWeapons(db)
+                seedExpandedArmor(db)
+                seedExpandedSupplements(db)
+            }
+        }
+
+        private val MIGRATION_56_57 = object : Migration(56, 57) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                seedExpandedArmor(db)
+                seedExpandedSupplements(db)
+            }
+        }
+
+        private val MIGRATION_57_58 = object : Migration(57, 58) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("UPDATE item_definition SET storeType = 'DROP_ONLY', dropRate = .10 WHERE code = 'camping_kit'")
+            }
+        }
+
         private val CREATE_AND_SEED = object : Callback() {
             override fun onCreate(db: SupportSQLiteDatabase) {
                 super.onCreate(db)
@@ -396,9 +459,9 @@ abstract class GameDatabase : RoomDatabase() {
         private fun seedMasterData(db: SupportSQLiteDatabase) {
             val itemSql = "INSERT OR REPLACE INTO item_definition VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
             listOf<Array<Any?>>(
-                arrayOf("torch", "횃불", "CONSUMABLE", "NORMAL", "GENERAL", 1, 5, "ui/items/item_torch.png", 1, 99, 0, 0, 0, 0, "사용한 현재 층 동안 모든 무기 공격력 +1", "FLOOR_ATTACK_PLUS_1", .10, null, 1),
+                arrayOf("torch", "횃불", "CONSUMABLE", "NORMAL", "GENERAL", 1, 5, "ui/items/item_torch.png", 1, 99, 0, 0, 0, 0, "사용한 현재 층 동안 모든 무기 공격력 +1 · 시야 +2", "FLOOR_ATTACK_PLUS_1", .10, null, 1),
                 arrayOf("return_stone", "귀환석", "CONSUMABLE", "NORMAL", "GENERAL", 2, 1, "ui/items/item_return_stone.png", 1, 99, 0, 0, 0, 0, "현재 층에서 마을로 귀환", "생존 중 사용 가능", .10, null, 2),
-                arrayOf("camping_kit", "야영 세트", "CONSUMABLE", "NORMAL", "GENERAL", 3, 1, "ui/items/item_camping_kit.png", 1, 99, 0, 0, 0, 0, "체력을 모두 회복", "야영 시 최대 체력 회복", .10, null, 3),
+                arrayOf("camping_kit", "야영 세트", "CONSUMABLE", "NORMAL", "DROP_ONLY", 10, 1, "ui/items/item_camping_kit.png", 1, 99, 0, 0, 0, 0, "체력을 모두 회복", "야영 시 최대 체력 회복", .10, null, 3),
                 arrayOf("fire_bomb", "화염병", "CONSUMABLE", "NORMAL", "GENERAL", 2, 1, "ui/items/item_fire_bomb.png", 1, 99, 5, 0, 0, 0, "3×3 화염 지대 · 3턴 · 턴당 피해 5 · 화상 3턴간 턴당 피해 3", "FIRE_ZONE_3X3_3T_BURN_3T", .10, null, 4),
                 arrayOf("empty_bottle", "빈병", "CONSUMABLE", "NORMAL", "GENERAL", 5, 5, "ui/items/item_empty_bottle.png", 1, 99, 0, 0, 0, 0, "체력이 가득 찬 상태에서 회복의 샘물은 1개, 천사상은 2개를 회복수 병으로 충전", "EMPTY_HEALING_BOTTLE", .10, null, 5),
                 arrayOf("healing_water", "회복수 병", "CONSUMABLE", "HIGH", "GENERAL", 5, 1, "ui/items/item_healing_water.png", 1, 99, 0, 0, 0, 50, "사용 시 최대 HP의 50% 회복", "HEAL_MAX_HP_50", .05, null, 6),
@@ -407,7 +470,7 @@ abstract class GameDatabase : RoomDatabase() {
                 arrayOf("crude_sword", "조잡한 검", "WEAPON", "NORMAL", "BLACKSMITH", 5, 1, "ui/items/item_crude_sword.png", 0, 1, 3, 1, 1, 0, "공격 3 · 1턴 · 주변 1칸의 모든 적 공격", "ADJACENT_SWEEP", .05, "ui/dungeon/player/player_sword_animation_sheet.png", 10),
                 arrayOf("crude_spear", "조잡한 창", "WEAPON", "NORMAL", "BLACKSMITH", 5, 1, "ui/items/item_crude_spear.png", 0, 1, 4, 2, 3, 0, "공격 4 · 2턴 · 직선 사거리 3 전체 찌르기", "LINE_THRUST", .05, "ui/dungeon/player/player_spear_animation_sheet.png", 11),
                 arrayOf("crude_bow", "조잡한 활", "WEAPON", "NORMAL", "BLACKSMITH", 5, 1, "ui/items/item_crude_bow.png", 0, 1, 3, 1, 4, 0, "공격 3 · 1턴 · 사거리 4 · 50% 확률로 추가 사격", "DOUBLE_SHOT_50", .05, "ui/dungeon/player/player_bow_animation_sheet.png", 12),
-                arrayOf("crude_gun", "조잡한 총", "WEAPON", "NORMAL", "BLACKSMITH", 5, 1, "ui/items/item_crude_gun.png", 0, 1, 5, 2, 5, 0, "공격 5 · 2턴 · 사거리 5 · 처치 시 직선 관통", "KILL_PIERCE", .05, "ui/dungeon/player/player_gun_animation_sheet.png", 13),
+                arrayOf("crude_gun", "조잡한 총", "WEAPON", "NORMAL", "BLACKSMITH", 5, 1, "ui/items/item_crude_gun.png", 0, 1, 5, 2, 6, 0, "공격 5 · 2턴 · 사거리 6 · 처치 시 직선 관통", "KILL_PIERCE", .05, "ui/dungeon/player/player_gun_animation_sheet.png", 13),
                 arrayOf("crude_armor", "조잡한 갑옷", "ARMOR", "NORMAL", "BLACKSMITH", 5, 1, "ui/items/item_crude_armor.png", 0, 1, 0, 0, 0, 0, "인접한 적의 일반 공격을 30% 확률로 완전히 방어", "MELEE_BLOCK_30", .05, null, 14),
                 arrayOf("crude_helmet", "조잡한 투구", "HELMET", "NORMAL", "BLACKSMITH", 5, 1, "ui/items/item_crude_helmet.png", 0, 1, 0, 0, 0, 0, "원거리 공격을 30% 확률로 완전히 방어", "RANGED_BLOCK_30", .05, null, 15),
                 arrayOf("crude_boots", "조잡한 신발", "BOOTS", "NORMAL", "BLACKSMITH", 5, 1, "ui/items/item_crude_boots.png", 0, 1, 0, 0, 0, 0, "이동 시 50% 확률로 +1칸", "이동 거리 +1 확률 50%", .05, null, 16)
@@ -417,6 +480,8 @@ abstract class GameDatabase : RoomDatabase() {
             seedFloorConsumables(db)
             seedThrowableConsumables(db)
             seedExpandedWeapons(db)
+            seedExpandedArmor(db)
+            seedExpandedSupplements(db)
             seedTravelingMerchantBoxes(db)
             seedFloorsSixToTen(db)
             seedFloorsElevenToFifteen(db)
@@ -442,7 +507,7 @@ abstract class GameDatabase : RoomDatabase() {
 
             val configSql = "INSERT OR REPLACE INTO game_config VALUES (?,?,?,?)"
             listOf<Array<Any?>>(
-                arrayOf("starting_gold", 10, null, null),
+                arrayOf("starting_gold", 20, null, null),
                 arrayOf("initial_return_stones", 5, null, null),
                 arrayOf("base_player_hp", 10, null, null),
                 arrayOf("inventory_capacity", 25, null, null),
@@ -451,8 +516,8 @@ abstract class GameDatabase : RoomDatabase() {
                 arrayOf("manor_reward_group_size", 4, null, null),
                 arrayOf("manor_reward_min_step", 10, null, null),
                 arrayOf("manor_reward_max_step", 50, null, null),
-                arrayOf("base_vision", 2, null, null),
-                arrayOf("torch_vision", 5, null, null),
+                arrayOf("base_vision", 5, null, null),
+                arrayOf("torch_vision", 7, null, null),
                 arrayOf("torch_duration_turns", 10, null, null),
                 arrayOf("fire_bomb_duration_turns", 3, null, null),
                 arrayOf("fire_bomb_relic_bonus_turns", 1, null, null),
@@ -508,9 +573,34 @@ abstract class GameDatabase : RoomDatabase() {
             db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('expanded_weapon_drop_percent',8,NULL,NULL)")
         }
 
+        private fun seedExpandedArmor(db: SupportSQLiteDatabase) {
+            val sql = "INSERT OR REPLACE INTO item_definition VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+            ExpandedArmorCatalog.all().forEach { item ->
+                db.execSQL(sql, arrayOf<Any?>(
+                    item.code, item.name, item.category, item.grade, item.storeType, item.basePrice,
+                    item.unitsPerPurchase, item.assetPath, if (item.isConsumable) 1 else 0, item.maxStack,
+                    item.attackPower, item.attackTurnCost, item.attackRange, item.healthBonus, item.detail,
+                    item.specialEffect, item.dropRate, item.playerSheetPath, item.sortOrder
+                ))
+            }
+        }
+
+        private fun seedExpandedSupplements(db: SupportSQLiteDatabase) {
+            val sql = "INSERT OR REPLACE INTO item_definition VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+            ExpandedSupplementCatalog.all().forEach { item ->
+                db.execSQL(sql, arrayOf<Any?>(
+                    item.code, item.name, item.category, item.grade, item.storeType, item.basePrice,
+                    item.unitsPerPurchase, item.assetPath, if (item.isConsumable) 1 else 0, item.maxStack,
+                    item.attackPower, item.attackTurnCost, item.attackRange, item.healthBonus, item.detail,
+                    item.specialEffect, item.dropRate, item.playerSheetPath, item.sortOrder
+                ))
+            }
+        }
+
         private fun seedTravelingMerchantBoxes(db: SupportSQLiteDatabase) {
             val itemSql = "INSERT OR REPLACE INTO item_definition VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
             listOf<Array<Any?>>(
+                arrayOf("welcome_weapon_box", "웰컴팩 무기 상자", "CONSUMABLE", "RARE", "WELCOME", 0, 1, "ui/dungeon/loot/chest_rare.png", 1, 1, 0, 0, 0, 0, "전체 무기 중 레어 이상 장비 1개를 확정 획득", "GACHA_BOX_WELCOME_WEAPON", 0.0, null, 299),
                 arrayOf("gacha_normal", "낡은 뽑기상자", "CONSUMABLE", "NORMAL", "MERCHANT_GENERAL", 100, 1, "ui/dungeon/loot/chest_normal.png", 1, 99, 0, 0, 0, 0, "당첨 30% · 당첨 시 골드 또는 장비", "GACHA_BOX_NORMAL", 0.0, null, 300),
                 arrayOf("gacha_high", "고급 뽑기상자", "CONSUMABLE", "HIGH", "MERCHANT_GENERAL", 200, 1, "ui/dungeon/loot/chest_high.png", 1, 99, 0, 0, 0, 0, "당첨 30% · 당첨 시 골드 또는 고급 이상 장비", "GACHA_BOX_HIGH", 0.0, null, 301),
                 arrayOf("gacha_rare", "레어 뽑기상자", "CONSUMABLE", "RARE", "MERCHANT", 400, 1, "ui/dungeon/loot/chest_rare.png", 1, 99, 0, 0, 0, 0, "당첨 30% · 당첨 시 골드 또는 레어 이상 장비", "GACHA_BOX_RARE", 0.0, null, 302),
@@ -789,7 +879,7 @@ abstract class GameDatabase : RoomDatabase() {
                     context.applicationContext,
                     GameDatabase::class.java,
                     "crpg_game.db"
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45, MIGRATION_45_46, MIGRATION_46_47, MIGRATION_47_48, MIGRATION_48_49, MIGRATION_49_50).addCallback(CREATE_AND_SEED).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45, MIGRATION_45_46, MIGRATION_46_47, MIGRATION_47_48, MIGRATION_48_49, MIGRATION_49_50, MIGRATION_50_51, MIGRATION_51_52, MIGRATION_52_53, MIGRATION_53_54, MIGRATION_54_55, MIGRATION_55_56, MIGRATION_56_57, MIGRATION_57_58).addCallback(CREATE_AND_SEED).build().also { instance = it }
             }
         }
     }

@@ -7,6 +7,44 @@ class InventoryRepository(private val database: GameDatabase) {
         val gold: Int? = null
     )
 
+    fun sortContainer(ownerId: Long, container: String): Result {
+        var message = "정렬할 수 없습니다."
+        database.runInTransaction {
+            val dao = database.ownedItemDao()
+            val items = dao.getForOwner(ownerId).filter { it.container == container }
+            val categoryOrder = mapOf(
+                "WEAPON" to 0, "HELMET" to 1, "ARMOR" to 2, "BOOTS" to 3,
+                "CLOAK" to 4, "CAPE" to 4, "AUXILIARY" to 5, "ACCESSORY" to 6, "RELIC" to 7
+            )
+            val gradeOrder = mapOf(
+                "MYTHIC" to 0, "LEGENDARY" to 1, "UNIQUE" to 2, "EPIC" to 3,
+                "RARE" to 4, "HIGH" to 5, "NORMAL" to 6
+            )
+            val sorted = items.sortedWith(
+                compareBy<OwnedItemEntity> {
+                    val definition = database.gameMasterDao().getItem(it.itemCode)
+                    when {
+                        it.isEquipped -> 0
+                        definition?.isConsumable == true -> 1
+                        else -> 2
+                    }
+                }.thenBy {
+                    if (it.isEquipped) categoryOrder[database.gameMasterDao().getItem(it.itemCode)?.category] ?: 99 else 0
+                }.thenBy {
+                    val definition = database.gameMasterDao().getItem(it.itemCode)
+                    if (!it.isEquipped && definition?.isConsumable != true) {
+                        gradeOrder[it.appraisedGrade ?: definition?.grade] ?: 99
+                    } else 0
+                }.thenBy { it.slotIndex }
+            )
+            // 고유 슬롯 인덱스 충돌을 피하기 위해 먼저 임시 슬롯으로 옮긴다.
+            sorted.forEachIndexed { index, item -> dao.updateLocation(item.id, container, -10_000 - index) }
+            sorted.forEachIndexed { index, item -> dao.updateLocation(item.id, container, index) }
+            message = if (container == "STORAGE") "창고를 정렬했습니다." else "아이템을 정렬했습니다."
+        }
+        return Result(message, database.ownedItemDao().getForOwner(ownerId))
+    }
+
     fun purchase(
         ownerId: Long,
         itemCode: String,
