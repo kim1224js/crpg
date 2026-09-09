@@ -111,6 +111,7 @@ class MainActivity : GameActivity() {
     private var survivalDay = 1
     private var highestFloor = 1
     private var unlockedDungeonStartFloor = 1
+    private var storageCapacity = 20
     private var introSeen = false
     private var awaitingHeirCreation = false
     private var hasEnteredVillage = false
@@ -255,6 +256,7 @@ class MainActivity : GameActivity() {
                 pendingEstateKeptNames = savedProfile?.pendingEstateKeptNames,
                 lastMerchantFreeDay = savedProfile?.lastMerchantFreeDay ?: 0,
                 merchantFreeClaimMask = savedProfile?.merchantFreeClaimMask ?: 0,
+                storageCapacity = savedProfile?.storageCapacity ?: gameInt("storage_capacity", 20),
                 activeCharacterId = activeCharacterId
             )
             gameDatabase.loginProfileDao().clearAutoLogin()
@@ -265,6 +267,7 @@ class MainActivity : GameActivity() {
             survivalDay = profile.survivalDay
             highestFloor = profile.highestFloor
             unlockedDungeonStartFloor = profile.unlockedDungeonStartFloor
+            storageCapacity = profile.storageCapacity
             introSeen = profile.introSeen
 
             if (isNewProfile) {
@@ -298,6 +301,7 @@ class MainActivity : GameActivity() {
             survivalDay = profile.survivalDay
             highestFloor = profile.highestFloor
             unlockedDungeonStartFloor = profile.unlockedDungeonStartFloor
+            storageCapacity = profile.storageCapacity
             introSeen = profile.introSeen
             ownedItems = currentCharacterItems(gameDatabase.ownedItemDao().getForOwner(profile.id))
             dungeonRunPayload = gameDatabase.dungeonRunDao().get(profile.id)?.payloadJson
@@ -323,6 +327,8 @@ class MainActivity : GameActivity() {
     }
 
     private fun gameInt(key: String, fallback: Int): Int = gameConfigs[key] ?: fallback
+
+    private fun currentStorageCapacity(): Int = storageCapacity.coerceAtLeast(gameInt("storage_capacity", 20))
 
     private fun currentCharacterItems(items: List<OwnedItemEntity>): List<OwnedItemEntity> =
         items.filter { it.characterId == currentCharacterId && it.container != "ESTATE" }
@@ -666,7 +672,7 @@ class MainActivity : GameActivity() {
             ViewGroup.LayoutParams.MATCH_PARENT,
             itemGridHeight(5)
         ))
-        val storageCapacity = gameInt("storage_capacity", 20)
+        val storageCapacity = currentStorageCapacity()
         val storageRows = (storageCapacity + 4) / 5
         leftColumn.addView(sectionTitle("창고  $storageCount / $storageCapacity"))
         leftColumn.addView(createWarehouseGrid(), LinearLayout.LayoutParams(
@@ -709,7 +715,7 @@ class MainActivity : GameActivity() {
     private fun createInventoryGrid(): ItemGridView = createCommonItemGrid("INVENTORY", 5, 5)
 
     private fun createWarehouseGrid(): ItemGridView {
-        val capacity = gameInt("storage_capacity", 20)
+        val capacity = currentStorageCapacity()
         return createCommonItemGrid("STORAGE", (capacity + 4) / 5, 5)
     }
 
@@ -779,7 +785,7 @@ class MainActivity : GameActivity() {
                     ItemCatalog.allDefinitions.filter { !it.isConsumable && it.grade == boxDefinition.grade }.randomOrNull()
                 } else null
                 val usedSlots = dao.getForOwner(currentPlayerId).filter { it.container == current.container }.map { it.slotIndex }.toSet()
-                val capacity = gameInt(if (current.container == "STORAGE") "storage_capacity" else "inventory_capacity", if (current.container == "STORAGE") 20 else 25)
+                val capacity = if (current.container == "STORAGE") currentStorageCapacity() else gameInt("inventory_capacity", 25)
                 val rewardSlot = if (current.quantity == 1) current.slotIndex else (0 until capacity).firstOrNull { it !in usedSlots }
                 val canGrantEquipment = rewardDefinition != null && rewardSlot != null
                 if (current.quantity == 1) dao.deleteById(current.id) else dao.updateQuantity(current.id, current.quantity - 1)
@@ -1196,7 +1202,7 @@ class MainActivity : GameActivity() {
         content.addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         val inventoryItems = ownedItems.count { it.container == "INVENTORY" }
         val storageItems = ownedItems.count { it.container == "STORAGE" }
-        val storageCapacity = gameInt("storage_capacity", 20)
+        val storageCapacity = currentStorageCapacity()
         val storageRows = (storageCapacity + 4) / 5
         val inventoryPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(8), dp(12), dp(10))
@@ -1365,7 +1371,7 @@ class MainActivity : GameActivity() {
                 val allItems = dao.getForOwner(ownerId)
                 val usedSlots = allItems.filter { it.container == "STORAGE" }.map { it.slotIndex }.toMutableSet()
                 allItems.filter { it.container == "ESTATE" }.forEach { item ->
-                    val slot = (0 until gameInt("storage_capacity", 20)).firstOrNull { it !in usedSlots } ?: return@forEach
+                    val slot = (0 until currentStorageCapacity()).firstOrNull { it !in usedSlots } ?: return@forEach
                     dao.claimEstateItem(item.id, characterId, slot)
                     usedSlots += slot
                 }
@@ -1670,6 +1676,13 @@ class MainActivity : GameActivity() {
                         databaseExecutor.execute { gameDatabase.loginProfileDao().updateUnlockedDungeonStartFloor(ownerId, 10) }
                     }
                 },
+                onGameCleared = { acquiredItems, acquiredGold, consumedItems, equippedCodes ->
+                    settleDungeonRun(
+                        acquiredItems, acquiredGold, consumedItems, equippedCodes,
+                        consumeReturnStone = false,
+                        completion = ::showGameClearEnding
+                    )
+                },
                 onPersistRun = { payload ->
                     dungeonRunPayload = payload
                     val ownerId = currentPlayerId
@@ -1923,7 +1936,8 @@ class MainActivity : GameActivity() {
         acquiredGold: Int,
         consumedItems: Map<String, Int>,
         equippedCodes: Set<String>,
-        consumeReturnStone: Boolean
+        consumeReturnStone: Boolean,
+        completion: (() -> Unit)? = null
     ) {
         databaseExecutor.execute {
             var settlementSucceeded = !consumeReturnStone
@@ -2019,11 +2033,52 @@ class MainActivity : GameActivity() {
                 val lootMessage = if (acquiredGold > 0 || itemsToSettle.isNotEmpty()) " · 전리품 정산 완료" else ""
                 val brokenMessage = if (brokenEquipmentNames.isEmpty()) "" else " · ${brokenEquipmentNames.joinToString()} 파괴"
                 val returnMessage = if (consumeReturnStone) "귀환석을 사용해 마을로 돌아왔습니다" else "탐험을 마치고 마을로 돌아왔습니다"
-                Toast.makeText(this, "$returnMessage · 생존 ${survivalDay}일$lootMessage$brokenMessage", Toast.LENGTH_LONG).show()
+                if (completion == null) {
+                    Toast.makeText(this, "$returnMessage · 생존 ${survivalDay}일$lootMessage$brokenMessage", Toast.LENGTH_LONG).show()
+                }
                 updateTravelingMerchantVisibility()
                 updateRedMoonVisibility()
+                completion?.invoke()
             }
         }
+    }
+
+    private fun showGameClearEnding() {
+        databaseExecutor.execute {
+            gameDatabase.loginProfileDao().expandStorageCapacity(currentPlayerId, 100)
+            storageCapacity = 100
+            runOnUiThread { showGameClearStory() }
+        }
+    }
+
+    private fun showGameClearStory() {
+        TimedStoryOverlay.show(this, TimedStoryOverlay.Config(
+            title = "잊혀진 혈통",
+            lines = listOf(
+                "잊혀진 영주의 신화 갑주가 갈라지고 오래된 왕관이 바닥에 떨어졌다.",
+                "그 얼굴은 낯선 군주가 아니라, 당신의 피 속에 남아 있던 최초의 조상이었다.",
+                "아버지는 저주받은 창을 놓았고 어머니를 잠식하던 병도 검은 안개와 함께 걷혔다.",
+                "가문은 힘을 얻기 위해 지하의 왕좌와 계약했고, 대대로 그 값을 치르고 있었다.",
+                "당신은 왕좌를 부수고 끝없이 이어지던 탐사의 굴레를 마침내 끊었다.",
+                "왕릉에서 회수한 공간의 성흔이 가문의 창고를 100칸으로 확장했다.",
+                "GAME CLEAR"
+            ),
+            prompt = "화면을 터치하여 마을로 돌아가기",
+            style = TimedStoryOverlay.Style.PROLOGUE,
+            onFinished = ::returnToVillageAfterClear
+        ))
+    }
+
+    private fun returnToVillageAfterClear() {
+        isDungeonActive = false
+        hasEnteredVillage = true
+        deathNoticeText.visibility = View.GONE
+        loginOverlay.visibility = View.GONE
+        setVillageHotspotsEnabled(true)
+        updateTravelingMerchantVisibility()
+        updateRedMoonVisibility()
+        settingsController.overlay.bringToFront()
+        updateBackgroundMusic()
     }
 
     private fun closeShop() {

@@ -63,7 +63,8 @@ class InventoryRepository(private val database: GameDatabase) {
         val targetCapacity = if (targetContainer == "INVENTORY") {
             database.gameMasterDao().getConfigInt("inventory_capacity") ?: 25
         } else {
-            database.gameMasterDao().getConfigInt("storage_capacity") ?: 20
+            database.loginProfileDao().getById(ownerId)?.storageCapacity
+                ?: database.gameMasterDao().getConfigInt("storage_capacity") ?: 20
         }
         var message = "이동할 수 없습니다."
         database.runInTransaction {
@@ -92,7 +93,12 @@ class InventoryRepository(private val database: GameDatabase) {
         database.runInTransaction {
             val capacityKey = if (targetContainer == "STORAGE") "storage_capacity" else "inventory_capacity"
             val fallbackCapacity = if (targetContainer == "STORAGE") 20 else 25
-            val targetCapacity = database.gameMasterDao().getConfigInt(capacityKey) ?: fallbackCapacity
+            val targetCapacity = if (targetContainer == "STORAGE") {
+                database.loginProfileDao().getById(ownerId)?.storageCapacity
+                    ?: database.gameMasterDao().getConfigInt(capacityKey) ?: fallbackCapacity
+            } else {
+                database.gameMasterDao().getConfigInt(capacityKey) ?: fallbackCapacity
+            }
             if (targetContainer !in setOf("INVENTORY", "STORAGE") || targetSlot !in 0 until targetCapacity) {
                 message = "사용할 수 없는 아이템 칸입니다."
                 return@runInTransaction

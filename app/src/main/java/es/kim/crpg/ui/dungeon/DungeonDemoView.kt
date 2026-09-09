@@ -75,6 +75,7 @@ class DungeonDemoView(
     private val onEquipItem: (String, String) -> Unit = { _, _ -> },
     private val onFloorChanged: (Int) -> Unit = {},
     private val onFloorCleared: (Int) -> Unit = {},
+    private val onGameCleared: (Map<String, Int>, Int, Map<String, Int>, Set<String>) -> Unit = { _, _, _, _ -> },
     private val onPersistRun: (String) -> Unit = {}
 ) : View(context) {
     private enum class MonsterKind { SPIDER, BANDIT, WILD_DOG, SLIME }
@@ -164,12 +165,14 @@ class DungeonDemoView(
     private val ashenFurnaceBackground = bitmap("ui/dungeon/concepts/dungeon_floors_11_15_ashen_furnace.png")
     private val demonAbyssBackground = bitmap("ui/dungeon/concepts/backgrounds_16_20.png")
     private val abyssalSanctuaryBackground = bitmap("ui/dungeon/concepts/dungeon_floors_21_25_abyssal_sanctuary.png")
+    private val ancestralCryptBackground = bitmap("ui/dungeon/concepts/dungeon_floors_26_30_ancestral_crypt.png")
     private val floorTileAtlasPaths = listOf(
         "ui/dungeon/tiles/floor_atlas_01_05.png",
         "ui/dungeon/tiles/floor_atlas_06_10.png",
         "ui/dungeon/tiles/floor_atlas_11_15.png",
         "ui/dungeon/tiles/floor_atlas_16_20.png",
-        "ui/dungeon/tiles/floor_atlas_21_25.png"
+        "ui/dungeon/tiles/floor_atlas_21_25.png",
+        "ui/dungeon/tiles/floor_atlas_26_30.png"
     )
     private var loadedFloorTileGroup = -1
     private var loadedFloorTileAtlas: Bitmap? = null
@@ -285,6 +288,7 @@ class DungeonDemoView(
     private var bossWarningResolved = false
     private var bossReturnLocked = false
     private var deathReported = false
+    private var gameClearReported = false
     private var deathCauseCode: String? = null
     private var deathCauseName: String? = null
     private var poisonSourceName: String? = null
@@ -338,12 +342,20 @@ class DungeonDemoView(
     }
 
     init {
-        if (!restoreRun(savedRunPayload)) createObstacles()
+        val restored = restoreRun(savedRunPayload)
+        if (!restored) createObstacles()
         activeFloorTileAtlas()
         onFloorChanged(currentFloor)
         persistRun()
         isClickable = true
-        post { showLandmarkSequence() }
+        post {
+            if (restored && currentFloor == 30 && monsters.any { it.definition?.code == "forgotten_lord" && it.hp <= 0 }) {
+                gameClearReported = true
+                onGameCleared(acquiredCounts.toMap(), lootedGold, consumedCounts.toMap(), equippedCodes())
+            } else {
+                showLandmarkSequence()
+            }
+        }
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -1105,14 +1117,14 @@ class DungeonDemoView(
             return
         }
         if (path.isEmpty()) {
-            showFloorChoice(canDescend = currentFloor < 25)
+            showFloorChoice(canDescend = currentFloor < 30)
             return
         }
         autoWalking = true
         phase = Phase.MONSTERS
         message = "계단으로 자동 이동 중"
         walkPathWithoutTurns(path, 0, "아래층 계단에 도착했습니다") {
-            showFloorChoice(canDescend = currentFloor < 25)
+            showFloorChoice(canDescend = currentFloor < 30)
         }
     }
 
@@ -1896,6 +1908,22 @@ class DungeonDemoView(
             }
         }
         postDelayed({ monster.alive = false; monster.dying = false; invalidate() }, combatDuration(1050L))
+        if (monster.definition?.code == "forgotten_lord" && !gameClearReported) {
+            lootPiles.filter { it.column == monster.column && it.row == monster.row }.toList().forEach { pile ->
+                lootedGold += pile.gold
+                pile.items.forEach { (code, quantity) ->
+                    acquiredCounts[code] = (acquiredCounts[code] ?: 0) + quantity
+                }
+                lootPiles.remove(pile)
+            }
+            gameClearReported = true
+            phase = Phase.MONSTERS
+            pendingAutoWalkContinuation = null
+            autoWalking = false
+            postDelayed({
+                onGameCleared(acquiredCounts.toMap(), lootedGold, consumedCounts.toMap(), equippedCodes())
+            }, combatDuration(1300L))
+        }
     }
 
     private fun showEffect(code: String, unit: UnitSprite) {
@@ -2016,6 +2044,7 @@ class DungeonDemoView(
             isBossMonster(monster) && currentFloor >= 15 -> listOf("UNIQUE", "LEGENDARY")
             isBossMonster(monster) && currentFloor >= 10 -> listOf("EPIC", "UNIQUE")
             isBossMonster(monster) -> listOf("RARE")
+            currentFloor >= 26 -> listOf("MYTHIC")
             currentFloor >= 21 -> listOf("UNIQUE")
             currentFloor >= 16 -> listOf("EPIC", "UNIQUE")
             currentFloor >= 11 -> listOf("RARE", "EPIC", "UNIQUE")
@@ -2042,7 +2071,8 @@ class DungeonDemoView(
     private fun revealMimic(chest: TreasureChest) {
         val code = when (currentFloor) {
             in 1..5 -> "mimic_01_05"; in 6..10 -> "mimic_06_10"
-            in 11..15 -> "mimic_11_15"; in 16..20 -> "mimic_16_20"; else -> "mimic_21_25"
+            in 11..15 -> "mimic_11_15"; in 16..20 -> "mimic_16_20"
+            in 21..25 -> "mimic_21_25"; else -> "mimic_26_30"
         }
         val definition = monsterDefinitions.firstOrNull { it.code == code } ?: run {
             phase = Phase.PLAYER; message = "상자는 비어 있었습니다"; invalidate(); return
@@ -2912,7 +2942,8 @@ class DungeonDemoView(
         in 6..10 -> when { roll < 55 -> "HIGH"; roll < 90 -> "RARE"; else -> "EPIC" }
         in 11..15 -> when { roll < 55 -> "RARE"; roll < 90 -> "EPIC"; else -> "UNIQUE" }
         in 16..20 -> when { roll < 55 -> "EPIC"; roll < 85 -> "UNIQUE"; roll < 97 -> "LEGENDARY"; else -> "MYTHIC" }
-        else -> when { roll < 25 -> "EPIC"; roll < 70 -> "UNIQUE"; roll < 90 -> "LEGENDARY"; else -> "MYTHIC" }
+        in 21..25 -> when { roll < 25 -> "EPIC"; roll < 70 -> "UNIQUE"; roll < 90 -> "LEGENDARY"; else -> "MYTHIC" }
+        else -> when { roll < 15 -> "UNIQUE"; roll < 55 -> "LEGENDARY"; else -> "MYTHIC" }
     }
 
     private fun occupiedCells(obj: HealingObject): List<Pair<Int, Int>> = buildList {
@@ -3796,7 +3827,8 @@ class DungeonDemoView(
         in 6..10 -> floodedCatacombBackground
         in 11..15 -> ashenFurnaceBackground
         in 16..20 -> demonAbyssBackground
-        else -> abyssalSanctuaryBackground
+        in 21..25 -> abyssalSanctuaryBackground
+        else -> ancestralCryptBackground
     }
     private fun isConsumable(code: String) = itemByCode[code]?.isConsumable == true
     private fun dungeonArea() = RectF(width * .025f, dp(62f), width * .615f, height - dp(116f))

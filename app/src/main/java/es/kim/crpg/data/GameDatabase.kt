@@ -16,7 +16,7 @@ import es.kim.crpg.game.catalog.ExpandedWeaponCatalog
         MonsterFloorSpawnEntity::class, DungeonInteractableDefinitionEntity::class,
         DungeonInteractableSpawnEntity::class, DungeonRunEntity::class
     ],
-    version = 48,
+    version = 50,
     exportSchema = true
 )
 abstract class GameDatabase : RoomDatabase() {
@@ -366,6 +366,16 @@ abstract class GameDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_48_49 = object : Migration(48, 49) {
+            override fun migrate(db: SupportSQLiteDatabase) = seedFloorsTwentySixToThirty(db)
+        }
+
+        private val MIGRATION_49_50 = object : Migration(49, 50) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE login_profile ADD COLUMN storageCapacity INTEGER NOT NULL DEFAULT 20")
+            }
+        }
+
         private val CREATE_AND_SEED = object : Callback() {
             override fun onCreate(db: SupportSQLiteDatabase) {
                 super.onCreate(db)
@@ -411,6 +421,7 @@ abstract class GameDatabase : RoomDatabase() {
             seedFloorsSixToTen(db)
             seedFloorsElevenToFifteen(db)
             seedFloorsSixteenToTwentyFive(db)
+            seedFloorsTwentySixToThirty(db)
             seedDungeonInteractables(db)
             seedDungeonChestRules(db)
 
@@ -720,6 +731,43 @@ abstract class GameDatabase : RoomDatabase() {
 
         }
 
+        private fun seedFloorsTwentySixToThirty(db: SupportSQLiteDatabase) {
+            val monsterSql = "INSERT OR REPLACE INTO monster_definition VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
+            listOf<Array<Any?>>(
+                arrayOf("mythic_warden", "신화 갑주 파수병", 38, 10, 1, 1, 1, 1, 12, .70, "ui/dungeon/monsters/floors_26_30/mythic_warden_animation_sheet.png", 8, 70),
+                arrayOf("stigmata_marksman", "성흔 사수", 32, 9, 7, 7, 1, 1, 11, .70, "ui/dungeon/monsters/floors_26_30/stigmata_marksman_animation_sheet.png", 10, 71),
+                arrayOf("relic_eater_priest", "유물 포식 사제", 34, 8, 5, 5, 1, 1, 12, .70, "ui/dungeon/monsters/floors_26_30/relic_eater_priest_animation_sheet.png", 9, 72),
+                arrayOf("lost_father", "잊힌 아버지", 48, 11, 3, 3, 2, 1, 18, .70, "ui/dungeon/monsters/floors_26_30/lost_father_animation_sheet.png", 9, 73),
+                arrayOf("ailing_mother", "병든 어머니", 42, 10, 6, 6, 1, 1, 18, .70, "ui/dungeon/monsters/floors_26_30/ailing_mother_animation_sheet.png", 11, 74),
+                arrayOf("forgotten_lord", "잊혀진 영주", 150, 14, 5, 5, 2, 1, 100, 1.0, "ui/dungeon/monsters/floors_26_30/forgotten_lord_animation_sheet.png", 12, 75),
+                arrayOf("mimic_26_30", "왕가의 미믹", 55, 11, 2, 2, 2, 1, 60, 1.0, "ui/dungeon/monsters/mimic/mimic_animation_sheet.png", 10, 76)
+            ).forEach { db.execSQL(monsterSql, it) }
+
+            val spawnSql = "INSERT OR REPLACE INTO monster_floor_spawn VALUES (?,?,?,?,?)"
+            val floors = mapOf(
+                26 to listOf("mythic_warden", "stigmata_marksman", "mythic_warden"),
+                27 to listOf("mythic_warden", "stigmata_marksman", "relic_eater_priest"),
+                28 to listOf("lost_father", "mythic_warden", "stigmata_marksman", "relic_eater_priest"),
+                29 to listOf("ailing_mother", "stigmata_marksman", "relic_eater_priest", "mythic_warden"),
+                30 to listOf("forgotten_lord", "lost_father", "ailing_mother", "mythic_warden", "stigmata_marksman")
+            )
+            val positions = listOf(8 to 3, 13 to 8, 18 to 4, 21 to 9, 16 to 2)
+            floors.forEach { (floor, codes) -> codes.forEachIndexed { index, code ->
+                val position = positions[index % positions.size]
+                db.execSQL(spawnSql, arrayOf<Any?>(floor, index, code, position.first, position.second))
+            } }
+
+            val dropSql = "INSERT OR REPLACE INTO monster_drop(monsterCode,itemCode,dropRate,dropQuantity) VALUES (?,?,?,?)"
+            listOf<Array<Any?>>(
+                arrayOf("mythic_warden", "exp_mythic_sword_02", .08, 1),
+                arrayOf("stigmata_marksman", "exp_mythic_bow_00", .08, 1),
+                arrayOf("relic_eater_priest", "exp_mythic_gun_01", .06, 1),
+                arrayOf("lost_father", "exp_mythic_spear_03", .15, 1),
+                arrayOf("ailing_mother", "exp_mythic_bow_00", .15, 1),
+                arrayOf("forgotten_lord", "exp_mythic_sword_02", 1.0, 1)
+            ).forEach { db.execSQL(dropSql, it) }
+        }
+
         private fun seedDungeonChestRules(db: SupportSQLiteDatabase) {
             db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('dungeon_chest_spawn_percent',25,NULL,NULL)")
             db.execSQL("INSERT OR REPLACE INTO game_config VALUES ('dungeon_chest_mimic_percent',25,NULL,NULL)")
@@ -741,7 +789,7 @@ abstract class GameDatabase : RoomDatabase() {
                     context.applicationContext,
                     GameDatabase::class.java,
                     "crpg_game.db"
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45, MIGRATION_45_46, MIGRATION_46_47, MIGRATION_47_48).addCallback(CREATE_AND_SEED).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45, MIGRATION_45_46, MIGRATION_46_47, MIGRATION_47_48, MIGRATION_48_49, MIGRATION_49_50).addCallback(CREATE_AND_SEED).build().also { instance = it }
             }
         }
     }

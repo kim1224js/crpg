@@ -33,6 +33,9 @@ interface LoginProfileDao {
     @Query("UPDATE login_profile SET merchantFreeClaimMask = :claimMask WHERE id = :id")
     fun updateMerchantFreeClaimMask(id: Long, claimMask: Int)
 
+    @Query("UPDATE login_profile SET storageCapacity = MAX(storageCapacity, :capacity) WHERE id = :id")
+    fun expandStorageCapacity(id: Long, capacity: Int)
+
     @Query("UPDATE login_profile SET introSeen = 1 WHERE id = :id")
     fun markIntroSeen(id: Long)
 

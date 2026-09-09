@@ -20,5 +20,6 @@ data class LoginProfileEntity(
     val pendingEstateKeptNames: String? = null,
     val lastMerchantFreeDay: Int = 0,
     val merchantFreeClaimMask: Int = 0,
+    @ColumnInfo(defaultValue = "20") val storageCapacity: Int = 20,
     @ColumnInfo(defaultValue = "0") val activeCharacterId: Long = id
 )
