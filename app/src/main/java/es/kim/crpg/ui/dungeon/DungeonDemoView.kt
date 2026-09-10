@@ -23,6 +23,7 @@ import es.kim.crpg.data.MonsterFloorSpawnEntity
 import es.kim.crpg.data.DungeonInteractableDefinitionEntity
 import es.kim.crpg.data.DungeonInteractableSpawnEntity
 import es.kim.crpg.game.rules.ItemAppraisalRules
+import es.kim.crpg.game.rules.EquipmentDropRules
 import es.kim.crpg.ui.common.AntiqueGameDialog
 import kotlin.math.abs
 import kotlin.math.floor
@@ -52,7 +53,7 @@ class DungeonDemoView(
     private val redMoonMonsterAttackPercent: Int = 150,
     private val redMoonDropRatePercent: Int = 200,
     private val redMoonReturnFloorInterval: Int = 5,
-    private val expandedWeaponDropPercent: Int = 8,
+    private val equipmentDropPercent: Int = 8,
     private val dungeonChestSpawnPercent: Int = 25,
     private val dungeonChestMimicPercent: Int = 25,
     private val fireBombDurationTurns: Int = 3,
@@ -2210,7 +2211,7 @@ class DungeonDemoView(
             randomEquipmentForGrade(grade)?.let { items[it.code] = 1 }
         }
         if (!isBossMonster(monster)) {
-            itemByCode.values.filter { it.dropRate > 0.0 }.forEach { item ->
+            itemByCode.values.filter { it.isConsumable && it.dropRate > 0.0 }.forEach { item ->
                 if (Random.nextDouble() < adjustedMonsterDropRate(item.dropRate)) items[item.code] = 1
             }
         }
@@ -2219,8 +2220,8 @@ class DungeonDemoView(
                 items[drop.itemCode] = (items[drop.itemCode] ?: 0) + drop.dropQuantity.coerceAtLeast(1)
             }
         }
-        if (Random.nextInt(100) < adjustedMonsterDropPercent(expandedWeaponDropPercent)) {
-            randomExpandedWeaponForFloor(monster)?.let { items[it.code] = 1 }
+        if (!isBossMonster(monster) && Random.nextInt(100) < adjustedMonsterDropPercent(equipmentDropPercent)) {
+            randomEquipmentDropForFloor()?.let { items.putIfAbsent(it.code, 1) }
         }
         if (gold > 0 || items.isNotEmpty()) lootPiles += LootPile(monster.column, monster.row, gold, items)
     }
@@ -2231,20 +2232,14 @@ class DungeonDemoView(
     private fun adjustedMonsterDropPercent(percent: Int): Int =
         if (redMoonActive) (percent * redMoonDropRatePercent / 100).coerceAtMost(100) else percent.coerceIn(0, 100)
 
-    private fun randomExpandedWeaponForFloor(monster: UnitSprite): ItemDefinitionEntity? {
-        val grades = when {
-            isBossMonster(monster) && currentFloor >= 20 -> listOf("LEGENDARY", "MYTHIC")
-            isBossMonster(monster) && currentFloor >= 15 -> listOf("UNIQUE", "LEGENDARY")
-            isBossMonster(monster) && currentFloor >= 10 -> listOf("EPIC", "UNIQUE")
-            isBossMonster(monster) -> listOf("RARE")
-            currentFloor >= 26 -> listOf("MYTHIC")
-            currentFloor >= 21 -> listOf("UNIQUE")
-            currentFloor >= 16 -> listOf("EPIC", "UNIQUE")
-            currentFloor >= 11 -> listOf("RARE", "EPIC", "UNIQUE")
-            currentFloor >= 6 -> listOf("HIGH", "RARE")
-            else -> listOf("NORMAL", "HIGH")
-        }
-        return itemByCode.values.filter { it.code.startsWith("exp_") && it.grade in grades }.randomOrNull()
+    private fun randomEquipmentDropForFloor(): ItemDefinitionEntity? {
+        val grade = EquipmentDropRules.gradeForFloor(currentFloor, Random.nextInt(100))
+        val equipmentCategories = setOf("WEAPON", "HELMET", "ARMOR", "BOOTS", "CLOAK", "AUXILIARY", "ACCESSORY")
+        return itemByCode.values.filter {
+            it.category in equipmentCategories &&
+                it.grade == grade &&
+                (it.code.startsWith("exp_") || (it.grade == "NORMAL" && it.storeType == "BLACKSMITH"))
+        }.randomOrNull()
     }
 
     private fun openTreasureChest(chest: TreasureChest) {

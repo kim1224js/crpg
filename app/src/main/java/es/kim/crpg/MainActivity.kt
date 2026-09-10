@@ -1749,7 +1749,7 @@ class MainActivity : GameActivity() {
                 redMoonMonsterAttackPercent = gameInt("red_moon_monster_attack_percent", 150),
                 redMoonDropRatePercent = gameInt("red_moon_drop_rate_percent", 200),
                 redMoonReturnFloorInterval = gameInt("red_moon_return_floor_interval", 5),
-                expandedWeaponDropPercent = gameInt("expanded_weapon_drop_percent", 8),
+                equipmentDropPercent = gameInt("expanded_weapon_drop_percent", 8),
                 initialFloor = startFloor,
                 dungeonChestSpawnPercent = gameInt("dungeon_chest_spawn_percent", 25),
                 dungeonChestMimicPercent = gameInt("dungeon_chest_mimic_percent", 25),
