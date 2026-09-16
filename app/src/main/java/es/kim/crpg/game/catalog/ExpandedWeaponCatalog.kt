@@ -30,6 +30,7 @@ object ExpandedWeaponCatalog {
             repeat(30) { index ->
                 val family = families[(index + tier) % families.size]
                 val traits = traitsFor(family, tier, index, grade.options)
+                val attack = family.attack + grade.bonus + attackBias(index)
                 val code = "exp_${grade.code.lowercase()}_${family.code}_${index.toString().padStart(2, '0')}"
                 add(ItemDefinitionEntity(
                     code = code,
@@ -42,9 +43,9 @@ object ExpandedWeaponCatalog {
                         "gun" -> "ui/items/weapons/expanded/guns/$code.png"
                         else -> family.icon
                     },
-                    isConsumable = false, maxStack = 1, attackPower = family.attack + grade.bonus,
+                    isConsumable = false, maxStack = 1, attackPower = attack,
                     attackTurnCost = family.turns, attackRange = family.range, healthBonus = 0,
-                    detail = (listOf("공격 ${family.attack + grade.bonus} · ${family.turns}턴 · 사거리 ${family.range}") + traits.map { it.second }).joinToString(" · "),
+                    detail = (listOf("공격 $attack · ${family.turns}턴 · 사거리 ${family.range}") + traits.map { it.second }).joinToString(" · "),
                     specialEffect = (listOf(family.style) + traits.map { it.first }).joinToString("|"), dropRate = 0.0,
                     playerSheetPath = family.sheet, sortOrder = 1_000 + tier * 100 + index
                 ))
@@ -68,7 +69,33 @@ object ExpandedWeaponCatalog {
             "bow" -> listOf("DISTANCE=${1 + tier / 3}" to "3칸 이상 거리에서 피해 +${1 + tier / 3}", "ROOT=${(chance - 5).coerceAtLeast(8)}" to "${(chance - 5).coerceAtLeast(8)}% 확률로 1턴 속박", "FOCUS=$power" to "같은 적 연속 공격 시 피해 +$power")
             else -> listOf("PUSH=$chance" to "${chance}% 확률로 1칸 밀치기", "SPLASH=$power" to "충격 지점 주변 적에게 피해 $power", "DISTANCE=${1 + tier / 3}" to "4칸 이상 거리에서 피해 +${1 + tier / 3}")
         }
-        val pool = specific + common
-        return List(count) { pool[(index + tier + it) % pool.size] }.distinctBy { it.first.substringBefore('=') }
+        val signature = signatureTrait(index, tier, chance, power)
+        val pool = (specific + common).filterNot {
+            it.first.substringBefore('=') == signature.first.substringBefore('=')
+        }
+        return (listOf(signature) + List((count - 1).coerceAtLeast(0)) { pool[(index + tier + it) % pool.size] })
+            .distinctBy { it.first.substringBefore('=') }
+    }
+
+    /** 이름의 수식어가 장비의 대표 성능을 결정한다. */
+    private fun signatureTrait(index: Int, tier: Int, chance: Int, power: Int): Pair<String, String> = when (index) {
+        0, 15 -> "KILL_HEAL=${(10 + tier * 4).coerceAtMost(38)}" to "처치 시 ${10 + tier * 4}% 확률로 HP 1 회복"
+        1, 16, 20, 24 -> "EXECUTE=${12 + tier * 4}:$power" to "체력 ${12 + tier * 4}% 이하 적에게 피해 +$power"
+        2, 8, 9, 19, 22 -> "CRIT=$chance" to "$chance% 확률로 치명타 2배"
+        3, 7, 23 -> "BLEED=$chance" to "$chance% 확률로 2턴 출혈 중첩"
+        4, 11 -> "ROOT=${(chance - 4).coerceAtLeast(8)}" to "${(chance - 4).coerceAtLeast(8)}% 확률로 1턴 속박"
+        5, 6, 21, 27, 29 -> "BOSS=${power + 1}" to "보스에게 피해 +${power + 1}"
+        10, 18 -> "FIRST=${power + 1}" to "상처 없는 적에게 첫 타격 피해 +${power + 1}"
+        12, 14, 17, 25 -> "KILL_HEAL=${(12 + tier * 4).coerceAtMost(40)}" to "처치 시 ${12 + tier * 4}% 확률로 HP 1 회복"
+        13 -> "FOCUS=${power + 1}" to "같은 적을 연속 공격하면 피해 +${power + 1}"
+        26, 28 -> "SPLASH=${power + 1}" to "주 대상 주변 적에게 피해 ${power + 1}"
+        else -> "DISTANCE=${1 + tier / 2}" to "원거리에서 공격하면 피해 +${1 + tier / 2}"
+    }
+
+    private fun attackBias(index: Int): Int = when (index) {
+        7, 23, 26, 27, 28, 29 -> 2
+        3, 5, 8, 10, 18, 24, 25 -> 1
+        0, 6, 11, 13, 16, 17, 21 -> -1
+        else -> 0
     }
 }

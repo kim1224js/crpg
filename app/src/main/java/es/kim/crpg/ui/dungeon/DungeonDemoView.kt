@@ -239,7 +239,7 @@ class DungeonDemoView(
         }
 
     private fun optionChance(code: String): Double = when (itemByCode[code]?.specialEffect) {
-            "DOUBLE_SHOT_50" -> .50; "BLOCK_CHANCE_30", "MELEE_BLOCK_30", "RANGED_BLOCK_30", "RANGED_POISON_SHOT_30", "DODGE_COUNTER_30",
+            "DOUBLE_SHOT_50", "MOVE_BONUS_50" -> .50; "BLOCK_CHANCE_30", "MELEE_BLOCK_30", "RANGED_BLOCK_30", "RANGED_POISON_SHOT_30", "DODGE_COUNTER_30",
             "FREE_MOVE_30", "RELIC_RANGED_PULL_30" -> .30
             "RANGED_ROOT_20", "GOLD_BONUS_20", "RANGED_BLOCK_20" -> .20
             else -> .0
@@ -847,8 +847,10 @@ class DungeonDemoView(
                 startPlayerMovement(column, row, combatDuration(520L))
                 movedTilesSinceAttack++
                 playAction(player, 1, 520L)
-                if (equippedArmorByCategory["BOOTS"] == "wild_dog_boots" && Random.nextDouble() < optionChance("wild_dog_boots")) {
-                    message = "들개의 가죽신 발동 · 추가 이동 가능"
+                val bootsCode = equippedArmorByCategory["BOOTS"]
+                val freeMoveChance = bootsCode?.let(::optionChance) ?: .0
+                if (bootsCode != null && itemByCode[bootsCode]?.specialEffect in setOf("FREE_MOVE_30", "MOVE_BONUS_50") && Random.nextDouble() < freeMoveChance) {
+                    message = "${itemByCode[bootsCode]?.name} 발동 · 추가 이동 가능"
                 } else {
                     phase = Phase.MONSTERS
                     postDelayed({ beginMonsterTurns(1) }, combatDuration(520L))
