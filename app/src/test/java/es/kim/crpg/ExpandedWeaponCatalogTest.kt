@@ -27,6 +27,8 @@ class ExpandedWeaponCatalogTest {
         val mythic = weapons.filter { it.grade == "MYTHIC" }
         assertTrue(mythic.minOf { it.attackPower } > normal.minOf { it.attackPower })
         assertTrue(mythic.all { it.specialEffect.orEmpty().count { char -> char == '|' } >= 4 })
+        assertTrue(weapons.groupBy { it.grade }.values.all { gradeItems -> gradeItems.map { it.detail }.distinct().size == 30 })
+        assertTrue(weapons.all { it.detail.orEmpty().contains(":") })
     }
 
     @Test

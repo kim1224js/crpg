@@ -46,6 +46,10 @@ class GameSettingsController(
         activity.addContentView(overlay, matchParentParams())
     }
 
+    fun setLauncherVisible(visible: Boolean) {
+        overlay.visibility = if (visible) View.VISIBLE else View.GONE
+    }
+
     fun restore() {
         executor.execute {
             val dao = database.gameMasterDao()
@@ -95,7 +99,7 @@ class GameSettingsController(
             })
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58)))
         content.addView(TextView(activity).apply {
-            text = "몬스터·무기·피격·사망 효과음에 공통 적용됩니다."; setTextColor(0xFFCCBFA8.toInt()); textSize = 14f
+            text = "문·구매·몬스터·무기·피격·사망 효과음에 공통 적용됩니다."; setTextColor(0xFFCCBFA8.toInt()); textSize = 14f
         })
         content.addView(TextView(activity).apply {
             text = "게임 가이드"; setTextColor(Color.WHITE); textSize = 15f; typeface = Typeface.DEFAULT_BOLD

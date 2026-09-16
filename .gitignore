@@ -1,10 +1,13 @@
 # Android / Gradle generated files
 *.iml
 .gradle/
+.gradle-verification/
 .kotlin/
 build/
 **/build/
 captures/
+crpg-login-check*.png
+crpg-ui*.xml
 .externalNativeBuild/
 .cxx/
 

@@ -12,6 +12,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.widget.TextViewCompat
 import es.kim.crpg.ui.inventory.HexagonSlotView
 
 fun Context.sectionTitle(title: String): TextView = TextView(this).apply {
@@ -22,6 +23,7 @@ fun Context.sectionTitle(title: String): TextView = TextView(this).apply {
     gravity = Gravity.CENTER_VERTICAL
     setPadding(dp(6), 0, 0, 0)
     layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(34))
+    fitText(12, 18)
 }
 
 fun Context.itemImage(assetPath: String): ImageView = ImageView(this).apply {
@@ -58,6 +60,18 @@ fun Context.antiqueButton(label: String, width: Int, height: Int): Button = Butt
     stateListAnimator = null
     background = antiquePanel(0xFF5B2418.toInt(), GameUiTheme.GOLD, 7f, 2)
     layoutParams = LinearLayout.LayoutParams(width, height)
+    fitText(11, 15)
+}
+
+fun TextView.fitText(minSp: Int, maxSp: Int, stepSp: Int = 1) {
+    maxLines = 1
+    TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
+        this,
+        minSp,
+        maxSp,
+        stepSp,
+        android.util.TypedValue.COMPLEX_UNIT_SP
+    )
 }
 
 fun Context.antiquePanel(fillColor: Int, strokeColor: Int, radiusDp: Float, strokeDp: Int): GradientDrawable =

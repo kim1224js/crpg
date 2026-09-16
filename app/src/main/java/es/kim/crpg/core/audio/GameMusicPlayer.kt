@@ -9,7 +9,7 @@ class GameMusicPlayer(context: Context) {
     private var player: MediaPlayer? = null
     private var currentAssetPath: String? = null
 
-    fun playVillage() = playTrack("audio/music/village_dark_ambient.ogg", .34f)
+    fun playVillage() = playTrack("audio/music/village_dark_ambient.ogg", .20f)
 
     fun playDungeonFloor(floor: Int) {
         val path = when (floor) {

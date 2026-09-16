@@ -17,6 +17,7 @@ import es.kim.crpg.ui.common.antiquePanel
 import es.kim.crpg.ui.common.dp
 import es.kim.crpg.ui.common.gameScrollView
 import es.kim.crpg.ui.common.matchParentParams
+import es.kim.crpg.ui.common.fitText
 
 class FacilityUiController(
     private val activity: GameActivity,
@@ -76,6 +77,7 @@ class FacilityUiController(
                 setTextColor(Color.WHITE)
                 textSize = 26f
                 typeface = Typeface.DEFAULT_BOLD
+                fitText(15, 26)
             }, LinearLayout.LayoutParams(0, activity.dp(56), 1f))
             addView(TextView(activity).apply {
                 text = "보유 골드  $gold G"
@@ -83,6 +85,7 @@ class FacilityUiController(
                 textSize = 18f
                 typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
+                fitText(12, 18)
             }, LinearLayout.LayoutParams(activity.dp(180), activity.dp(56)))
             addView(activity.antiqueButton("닫기", activity.dp(78), activity.dp(40)).apply {
                 setOnClickListener { onClose(overlay) }
