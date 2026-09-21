@@ -15,15 +15,25 @@ import android.view.ViewGroup
 import android.view.Window
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.text.InputFilter
+import android.text.InputType
 import android.view.animation.LinearInterpolator
 
 object AntiqueGameDialog {
     data class Action(
         val label: String,
         val primary: Boolean = false,
-        val onClick: () -> Unit = {}
+        val onClick: () -> Unit = {},
+        val onInput: ((String) -> Unit)? = null
+    )
+
+    data class Input(
+        val initialValue: String = "",
+        val hint: String = "",
+        val maxLength: Int = 6
     )
 
     data class Config(
@@ -38,7 +48,8 @@ object AntiqueGameDialog {
         val autoScrollBody: Boolean = false,
         val autoScrollDurationMs: Long = 12_000L,
         val bodyHeightDp: Int = 280,
-        val onCancel: (() -> Unit)? = null
+        val onCancel: (() -> Unit)? = null,
+        val input: Input? = null
     )
 
     fun show(context: Context, config: Config): Dialog {
@@ -88,7 +99,26 @@ object AntiqueGameDialog {
             ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 1)
         ).apply { bottomMargin = dp(context, 12) })
 
-        val buttons = createActionButtons(context, dialog, config.actions)
+        val inputField = config.input?.let { input ->
+            EditText(context).apply {
+                setText(input.initialValue)
+                hint = input.hint
+                inputType = InputType.TYPE_CLASS_NUMBER
+                filters = arrayOf(InputFilter.LengthFilter(input.maxLength))
+                setTextColor(Color.WHITE)
+                setHintTextColor(0xFF8E8175.toInt())
+                textSize = 18f
+                gravity = Gravity.CENTER
+                selectAll()
+                background = panel(0xD91D1612.toInt(), GameUiTheme.GOLD_DARK, 9f, 1, context)
+                setPadding(dp(context, 12), dp(context, 8), dp(context, 12), dp(context, 8))
+            }.also { field ->
+                panel.addView(field, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 48)
+                ).apply { bottomMargin = dp(context, 10) })
+            }
+        }
+        val buttons = createActionButtons(context, dialog, config.actions) { inputField?.text?.toString().orEmpty() }
         if (config.actionsAboveBody) {
             panel.addView(buttons, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 48)
@@ -171,6 +201,8 @@ object AntiqueGameDialog {
                     }
                 }, 900L)
             }
+            inputField?.requestFocus()
+            if (inputField != null) dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
         }
         dialog.setOnDismissListener { autoScrollAnimator?.cancel() }
         dialog.setOnCancelListener { config.onCancel?.invoke() }
@@ -181,7 +213,8 @@ object AntiqueGameDialog {
     private fun createActionButtons(
         context: Context,
         dialog: Dialog,
-        actions: List<Action>
+        actions: List<Action>,
+        inputValue: () -> String
     ) = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER
@@ -198,7 +231,7 @@ object AntiqueGameDialog {
                 background = actionBackground(context, action.primary)
                 setOnClickListener {
                     dialog.dismiss()
-                    action.onClick()
+                    action.onInput?.invoke(inputValue()) ?: action.onClick()
                 }
             }, LinearLayout.LayoutParams(0, dp(context, 48), 1f).apply {
                 if (index > 0) marginStart = dp(context, 10)

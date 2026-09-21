@@ -24,6 +24,7 @@ import es.kim.crpg.data.DungeonInteractableDefinitionEntity
 import es.kim.crpg.data.DungeonInteractableSpawnEntity
 import es.kim.crpg.game.rules.ItemAppraisalRules
 import es.kim.crpg.game.rules.EquipmentDropRules
+import es.kim.crpg.game.rules.ArmorSetRules
 import es.kim.crpg.ui.common.AntiqueGameDialog
 import kotlin.math.abs
 import kotlin.math.floor
@@ -230,13 +231,21 @@ class DungeonDemoView(
     private var equippedRelic = equippedItemCodes.firstOrNull { itemByCode[it]?.category == "RELIC" && initialInventoryCounts.containsKey(it) }
         ?: initialInventoryCounts.keys.firstOrNull { itemByCode[it]?.category == "RELIC" }
     private val meleeDefenseChance: Double
-        get() = listOf("ARMOR", "CLOAK").maxOf { category ->
-            if (itemByCode[equippedArmorByCategory[category]]?.specialEffect == "MELEE_BLOCK_30") .30 else .0
-        } + if (ironwallOilFloor == currentFloor) .20 else .0
+        get() = max(
+            listOf("ARMOR", "CLOAK").maxOf { category ->
+                if (itemByCode[equippedArmorByCategory[category]]?.specialEffect == "MELEE_BLOCK_30") .30 else .0
+            },
+            max(armorTraitChance("MELEE_BLOCK"), armorTraitChance("DUAL_BLOCK"))
+        ) + if (ironwallOilFloor == currentFloor) .20 else .0
     private val rangedDefenseChance: Double
-        get() = listOf("HELMET", "CLOAK").maxOf { category ->
-            if (itemByCode[equippedArmorByCategory[category]]?.specialEffect == "RANGED_BLOCK_30") .30 else .0
-        }
+        get() = max(
+            listOf("HELMET", "CLOAK").maxOf { category ->
+                if (itemByCode[equippedArmorByCategory[category]]?.specialEffect == "RANGED_BLOCK_30") .30 else .0
+            },
+            max(armorTraitChance("RANGED_BLOCK"), armorTraitChance("DUAL_BLOCK"))
+        )
+    private val armorDodgeChance: Double get() = armorTraitChance("DODGE")
+    private val armorDamageReduction: Int get() = armorTraitValue("DAMAGE_REDUCE")
     private val uniqueArmorProtectionCode: String?
         get() = equippedArmorByCategory.values.filterNotNull().firstOrNull { code ->
             itemByCode[code]?.let { item -> item.category in ARMOR_CATEGORIES && item.grade in UNIQUE_PLUS_GRADES } == true
@@ -900,12 +909,16 @@ class DungeonDemoView(
             healingObjects.any { column to row in occupiedCells(it) } || treasureChests.any { it.column == column && it.row == row } ->
                 message = "해당 구조물 바로 앞 칸으로 이동해야 합니다"
             !combatActive && !occupied(column, row) -> startExplorationAutoWalk(column, row)
-            !isAdjacent(column, row) && !occupied(column, row) && canUseTwoTileCombatMove() -> {
+            !isAdjacent(column, row) && !occupied(column, row) -> {
                 val path = findPathToGoals(setOf(column to row))
-                if (path != null && path.isNotEmpty() && path.size <= 2 && path.none(::isClosedDoor)) {
-                    performCombatMovement(path)
+                if (path != null && path.isNotEmpty() && path.none(::isClosedDoor)) {
+                    showCombatMovementConfirmation(column, row, path.size)
                 } else {
-                    message = "전투 중에는 최대 2칸까지 이동할 수 있습니다"
+                    message = if (path?.any(::isClosedDoor) == true) {
+                        "전투 중 다중 이동 경로에는 닫힌 문이 없어야 합니다"
+                    } else {
+                        "선택한 위치로 이동할 수 없습니다"
+                    }
                 }
             }
             isAdjacent(column, row) && !occupied(column, row) -> {
@@ -914,14 +927,16 @@ class DungeonDemoView(
                 playAction(player, 1, 520L)
                 val equippedBoots = equippedArmorByCategory["BOOTS"]
                 val bootsEffect = itemByCode[equippedBoots]?.specialEffect
-                if (bootsEffect in setOf("FREE_MOVE_30", "MOVE_BONUS_50") && Random.nextDouble() < optionChance(equippedBoots.orEmpty())) {
+                val namedFreeMoveChance = (armorTraits(equippedBoots)["FREE_MOVE"] ?: 0) / 100.0
+                val freeMoveChance = if (namedFreeMoveChance > 0.0) namedFreeMoveChance else optionChance(equippedBoots.orEmpty())
+                if ((bootsEffect in setOf("FREE_MOVE_30", "MOVE_BONUS_50") || namedFreeMoveChance > 0.0) && Random.nextDouble() < freeMoveChance) {
                     message = "${itemByCode[equippedBoots]?.name} 발동 · 추가 이동 가능"
                 } else {
                     phase = Phase.MONSTERS
                     postDelayed({ beginMonsterTurns(1) }, combatDuration(520L))
                 }
             }
-            else -> message = "전투 중에는 파란색 인접 타일만 이동할 수 있습니다"
+            else -> message = "이동할 수 있는 타일을 선택하세요"
         }
         invalidate()
     }
@@ -1068,7 +1083,40 @@ class DungeonDemoView(
             return
         }
         val code = inventorySlotCodes.getOrNull(slotIndex) ?: return
-        val remaining = itemCount(code) - 1
+        val item = itemByCode[code] ?: return
+        val ownedQuantity = itemCount(code)
+        if (item.isConsumable && ownedQuantity > 1) {
+            AntiqueGameDialog.show(
+                context,
+                AntiqueGameDialog.Config(
+                    title = "소모품 버리기",
+                    subtitle = "${item.name} · 보유 ${ownedQuantity}개",
+                    body = "버릴 수량을 직접 입력하세요.\n버린 소모품은 현재 위치의 바닥에 놓이며 1행동을 소모합니다.",
+                    warning = "1개부터 ${ownedQuantity}개까지 입력할 수 있습니다.",
+                    input = AntiqueGameDialog.Input(initialValue = "1", hint = "버릴 수량"),
+                    actions = listOf(
+                        AntiqueGameDialog.Action("취소"),
+                        AntiqueGameDialog.Action("버리기", primary = true, onInput = { value ->
+                            val quantity = value.toIntOrNull()
+                            if (quantity == null || quantity !in 1..itemCount(code)) {
+                                message = "버릴 수량은 1개부터 ${itemCount(code)}개까지 입력해야 합니다"
+                                invalidate()
+                            } else {
+                                executeDropInventoryItem(slotIndex, code, quantity)
+                            }
+                        })
+                    ),
+                    bodyHeightDp = 115
+                )
+            )
+            return
+        }
+        executeDropInventoryItem(slotIndex, code, 1)
+    }
+
+    private fun executeDropInventoryItem(slotIndex: Int, code: String, quantity: Int) {
+        if (phase != Phase.PLAYER || autoWalking || quantity !in 1..itemCount(code)) return
+        val remaining = itemCount(code) - quantity
         if (remaining <= 0) unequipDiscardedItem(code, slotIndex)
         if (remaining <= 0) {
             inventoryCounts.remove(code)
@@ -1078,54 +1126,124 @@ class DungeonDemoView(
             if (itemByCode[code]?.isConsumable != true) inventorySlotCodes[slotIndex] = null
         }
         val acquired = acquiredCounts[code] ?: 0
-        if (acquired > 0) {
-            if (acquired == 1) acquiredCounts.remove(code) else acquiredCounts[code] = acquired - 1
-        } else {
-            consumedCounts[code] = (consumedCounts[code] ?: 0) + 1
-        }
+        val acquiredDropped = minOf(acquired, quantity)
+        val carriedDropped = quantity - acquiredDropped
+        if (acquiredDropped >= acquired) acquiredCounts.remove(code) else acquiredCounts[code] = acquired - acquiredDropped
+        if (carriedDropped > 0) consumedCounts[code] = (consumedCounts[code] ?: 0) + carriedDropped
         val floorPile = lootPiles.firstOrNull { it.column == player.column && it.row == player.row }
             ?: LootPile(player.column, player.row, 0, linkedMapOf()).also(lootPiles::add)
-        floorPile.items[code] = (floorPile.items[code] ?: 0) + 1
+        floorPile.items[code] = (floorPile.items[code] ?: 0) + quantity
         movingInventorySlot = null
         phase = Phase.MONSTERS
-        message = "${itemByCode[code]?.name ?: "아이템"}을 바닥에 버렸습니다 · 1행동 소모"
+        message = "${itemByCode[code]?.name ?: "아이템"} ${quantity}개를 바닥에 버렸습니다 · 1행동 소모"
         persistRun()
         postDelayed({ beginMonsterTurns(1) }, combatDuration(300L))
         invalidate()
     }
 
-    private fun canUseTwoTileCombatMove(): Boolean = equippedWeapon?.let { weapon ->
-        weaponStyle(weapon) in setOf("ADJACENT_SWEEP", "LINE_THRUST")
-    } == true
-
     private fun isCombatMoveDestination(column: Int, row: Int): Boolean {
-        if (occupied(column, row)) return false
-        val steps = abs(player.column - column) + abs(player.row - row)
-        if (steps == 1) return true
-        if (steps != 2 || !canUseTwoTileCombatMove()) return false
-        return listOf(1 to 0, -1 to 0, 0 to 1, 0 to -1).any { direction ->
-            val middle = player.column + direction.first to player.row + direction.second
-            !blocksPlannedTravel(middle) && monsters.none { it.alive && it.column == middle.first && it.row == middle.second } &&
-                abs(middle.first - column) + abs(middle.second - row) == 1
-        }
+        if (column == player.column && row == player.row) return false
+        return !occupied(column, row) && !blocksPlannedTravel(column to row)
     }
 
-    private fun performCombatMovement(path: List<Pair<Int, Int>>, index: Int = 0) {
-        if (index == 0) {
-            phase = Phase.MONSTERS
-            message = "${path.size}칸 이동 · ${path.size}턴 소모"
-        }
-        if (index >= path.size) {
-            postDelayed({ beginMonsterTurns(path.size) }, combatDuration(120L))
+    private fun showCombatMovementConfirmation(column: Int, row: Int, turnCost: Int) {
+        AntiqueGameDialog.show(
+            context,
+            AntiqueGameDialog.Config(
+                title = "전투 중 이동",
+                subtitle = "목적지까지 ${turnCost}칸",
+                body = "정말 ${turnCost}칸 이동하시겠습니까?\n\n한 칸을 이동할 때마다 몬스터들도 한 번씩 행동합니다.",
+                warning = "${turnCost}턴이 소모됩니다. 이동 중 공격받거나 경로가 막히면 즉시 멈춥니다.",
+                actions = listOf(
+                    AntiqueGameDialog.Action("취소"),
+                    AntiqueGameDialog.Action("${turnCost}턴 이동", primary = true) {
+                        startConfirmedCombatMovement(column to row, turnCost)
+                    }
+                ),
+                bodyHeightDp = 145
+            )
+        )
+    }
+
+    private fun startConfirmedCombatMovement(destination: Pair<Int, Int>, plannedTurns: Int) {
+        if (phase != Phase.PLAYER || autoWalking) return
+        autoWalking = true
+        selectedThrowableCode = null
+        continueConfirmedCombatMovement(destination, plannedTurns, 0)
+    }
+
+    private fun continueConfirmedCombatMovement(
+        destination: Pair<Int, Int>,
+        plannedTurns: Int,
+        completedTurns: Int
+    ) {
+        if (player.hp <= 0) {
+            autoWalking = false
+            pendingAutoWalkContinuation = null
             return
         }
-        val next = path[index]
+
+        if (player.column == destination.first && player.row == destination.second) {
+            autoWalking = false
+            phase = Phase.PLAYER
+            message = "목적지에 도착했습니다 · ${completedTurns}턴 소모"
+            persistRun()
+            invalidate()
+            return
+        }
+        val path = findPathToGoals(setOf(destination))
+        if (completedTurns >= plannedTurns || path != null && path.size > plannedTurns - completedTurns) {
+            autoWalking = false
+            pendingAutoWalkContinuation = null
+            phase = Phase.PLAYER
+            message = "몬스터가 경로를 바꿔 ${completedTurns}턴 이동 후 멈췄습니다"
+            persistRun()
+            invalidate()
+            return
+        }
+        val next = path?.firstOrNull()
+        if (next == null || isClosedDoor(next) || blocksPlannedTravel(next) || monsters.any { it.alive && it.column == next.first && it.row == next.second }) {
+            autoWalking = false
+            pendingAutoWalkContinuation = null
+            phase = Phase.PLAYER
+            message = "이동 경로가 막혀 ${completedTurns}턴 이동 후 멈췄습니다"
+            persistRun()
+            invalidate()
+            return
+        }
         startPlayerMovement(next.first, next.second, combatDuration(360L))
         movedTilesSinceAttack++
         playAction(player, 1, 360L)
         focusCamera(player.column, player.row)
+        phase = Phase.MONSTERS
+        val usedTurns = completedTurns + 1
+        message = "전투 이동 중 · $usedTurns / $plannedTurns 턴"
+        pendingAutoWalkContinuation = {
+            continueConfirmedCombatMovement(destination, plannedTurns, usedTurns)
+        }
         invalidate()
-        postDelayed({ performCombatMovement(path, index + 1) }, combatDuration(360L))
+        postDelayed({ beginMonsterTurns(1) }, combatDuration(360L))
+    }
+
+    private fun armorTraits(code: String?): Map<String, Int> = itemByCode[code]?.specialEffect.orEmpty()
+        .split('|')
+        .mapNotNull { token ->
+            val key = token.substringBefore('=', "")
+            val value = token.substringAfter('=', "").toIntOrNull()
+            if (key.isNotBlank() && value != null) key to value else null
+        }
+        .toMap()
+
+    private fun armorTraitValue(name: String): Int = equippedArmorByCategory.values.filterNotNull()
+        .maxOfOrNull { armorTraits(it)[name] ?: 0 } ?: 0
+
+    private fun armorTraitChance(name: String): Double = armorTraitValue(name).coerceIn(0, 100) / 100.0
+
+    private fun currentEquipmentHealthBonus(): Int {
+        val armorCodes = equippedArmorByCategory.values.filterNotNull()
+        val allCodes = armorCodes + listOfNotNull(equippedAuxiliary, equippedAccessory, equippedRelic)
+        return allCodes.sumOf { itemByCode[it]?.healthBonus ?: 0 } +
+            ArmorSetRules.totalHealthBonus(armorCodes, itemByCode)
     }
 
     private fun unequipDiscardedItem(code: String, discardedSlotIndex: Int) {
@@ -1138,6 +1256,7 @@ class DungeonDemoView(
                 index != discardedSlotIndex && candidate != code && itemByCode[candidate]?.category == category
             }
         }
+        val previousHealthBonus = currentEquipmentHealthBonus()
         when (category) {
             "WEAPON" -> {
                 equippedWeapon = replacementCode?.let { candidate -> weapons.firstOrNull { it.code == candidate } }
@@ -1146,11 +1265,11 @@ class DungeonDemoView(
             "AUXILIARY" -> if (equippedAuxiliary == code) equippedAuxiliary = replacementCode
             "ACCESSORY" -> if (equippedAccessory == code) equippedAccessory = replacementCode
             "RELIC" -> if (equippedRelic == code) equippedRelic = replacementCode
-            "HELMET", "ARMOR", "BOOTS" -> {
+            "HELMET", "ARMOR", "BOOTS", "CLOAK" -> {
                 if (equippedArmorByCategory[category] == code) equippedArmorByCategory[category] = replacementCode
             }
         }
-        applyHealthBonusSwap(code, replacementCode)
+        applyEquipmentHealthChange(previousHealthBonus)
         replacementCode?.let { onEquipItem(it, category) }
     }
 
@@ -1679,13 +1798,14 @@ class DungeonDemoView(
             message = "이미 ${definition.name}을 착용 중입니다"
             invalidate(); return
         }
+        val previousHealthBonus = currentEquipmentHealthBonus()
         when (definition.category) {
             "AUXILIARY" -> equippedAuxiliary = code
             "ACCESSORY" -> equippedAccessory = code
             "RELIC" -> equippedRelic = code
             else -> equippedArmorByCategory[definition.category] = code
         }
-        applyHealthBonusSwap(currentCode, code)
+        applyEquipmentHealthChange(previousHealthBonus)
         wornEquipmentCodes += code
         onEquipItem(code, definition.category)
         phase = Phase.MONSTERS
@@ -1889,10 +2009,8 @@ class DungeonDemoView(
         return if (maximum == 2) 2 else Random.nextInt(2, maximum + 1)
     }
 
-    private fun applyHealthBonusSwap(previousCode: String?, nextCode: String?) {
-        val previousBonus = previousCode?.let { itemByCode[it]?.healthBonus } ?: 0
-        val nextBonus = nextCode?.let { itemByCode[it]?.healthBonus } ?: 0
-        val difference = nextBonus - previousBonus
+    private fun applyEquipmentHealthChange(previousBonus: Int) {
+        val difference = currentEquipmentHealthBonus() - previousBonus
         player.maxHp = (player.maxHp + difference).coerceAtLeast(1)
         player.hp = if (difference > 0) {
             (player.hp + difference).coerceAtMost(player.maxHp)
@@ -2310,7 +2428,7 @@ class DungeonDemoView(
         phase = Phase.PLAYER
         persistRun()
         invalidate()
-        acquiredEquipment?.let { showAcquiredEquipmentSequence(listOf(it)) }
+        acquiredEquipment?.takeIf(::isUniquePlusEquipment)?.let { showAcquiredEquipmentSequence(listOf(it)) }
     }
 
     private fun randomEquipmentForGrade(grade: String): ItemDefinitionEntity? =
@@ -2446,15 +2564,20 @@ class DungeonDemoView(
             if (item.attackPower > 0) add("공격력  ${item.attackPower}")
             if (item.attackRange > 0) add("사거리  ${item.attackRange}")
             if (item.attackTurnCost > 0) add("행동 소모  ${item.attackTurnCost}턴")
+            if (item.healthBonus > 0) add("최대 체력  +${item.healthBonus}")
         }.joinToString("\n")
+        val gradeProtection = if (item.category in ARMOR_CATEGORIES) {
+            "\n\n등급 방호\n피해 ${uniqueArmorDamageThreshold} 이상을 ${uniqueArmorDamageReductionPercent}% 경감"
+        } else ""
         AntiqueGameDialog.show(
             context,
             AntiqueGameDialog.Config(
-                title = item.name,
-                subtitle = "${ItemAppraisalRules.gradeName(item.grade)} · $category · 미감정",
+                title = "${ItemAppraisalRules.gradeName(item.grade)} 장비 획득",
+                subtitle = "${item.name} · $category · 미감정",
                 body = buildString {
                     if (combatStats.isNotBlank()) append(combatStats).append("\n\n")
-                    append("옵션\n${item.detail ?: "추가 옵션 없음"}")
+                    append("전체 옵션\n${item.detail ?: "추가 옵션 없음"}")
+                    append(gradeProtection)
                     append("\n\n기본 수명  ${ItemAppraisalRules.baseDurability(item.grade)}회")
                     append("\n감정 전에도 기본 성능으로 즉시 사용할 수 있습니다.")
                 },
@@ -2683,6 +2806,12 @@ class DungeonDemoView(
                 message = "거미눈 투구 · 회피 후 반격 $counterDamage"
                 return 820L
             }
+            if (armorDodgeChance > 0.0 && Random.nextDouble() < armorDodgeChance) {
+                defenseMissUntil = System.currentTimeMillis() + 950L
+                showEffect("dodge_counter", player)
+                message = "방어구 회피 발동 · ${monster.name}의 공격 MISS"
+                return 820L
+            }
             if (equippedAuxiliary == "slime_shield" && dist > 1 && Random.nextDouble() < optionChance("slime_shield")) {
                 defenseMissUntil = System.currentTimeMillis() + 950L
                 showEffect("slime_block", player)
@@ -2715,6 +2844,11 @@ class DungeonDemoView(
                 val remainingPercent = (100 - uniqueArmorDamageReductionPercent.coerceIn(0, 100))
                 damage = ((damage * remainingPercent) + 99) / 100
                 message = "유니크 이상 방어구 · 피해 $originalDamage → $damage"
+            }
+            if (armorDamageReduction > 0) {
+                val originalDamage = damage
+                damage = max(0, damage - armorDamageReduction)
+                if (damage != originalDamage) message = "방어구 피해 감소 · $originalDamage → $damage"
             }
             if (hasRelic("cold_iron_rosary") && !firstHitRelicUsedThisFloor) {
                 firstHitRelicUsedThisFloor = true

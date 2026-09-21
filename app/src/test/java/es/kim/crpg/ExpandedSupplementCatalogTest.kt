@@ -28,9 +28,20 @@ class ExpandedSupplementCatalogTest {
     @Test
     fun everyCloakUsesAWeaponSetTheme() {
         val weaponNames = ExpandedWeaponCatalog.all().map { it.name }
-        ExpandedSupplementCatalog.all().filter { it.category == "CLOAK" }.forEach { cloak ->
+        ExpandedSupplementCatalog.all().filter { it.category == "CLOAK" }.take(28).forEach { cloak ->
             val theme = cloak.detail.orEmpty().substringAfter("세트 계열: ").substringBefore(" ·")
             assertTrue(weaponNames.any { it.contains(theme) })
         }
+    }
+
+    @Test
+    fun cloaksUseSpecialOptionsAndOnlyFirstTwentyEightJoinSets() {
+        val cloaks = ExpandedSupplementCatalog.all().filter { it.category == "CLOAK" }
+
+        assertTrue(cloaks.all { it.healthBonus == 0 })
+        assertTrue(cloaks.take(28).all { it.specialEffect.orEmpty().startsWith("SET=") })
+        assertTrue(cloaks.drop(28).all { "SET=" !in it.specialEffect.orEmpty() })
+        assertTrue(cloaks.all { it.specialEffect.orEmpty().contains('=') })
+        assertTrue(cloaks.none { "고유 효과 없음" in it.detail.orEmpty() })
     }
 }

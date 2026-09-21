@@ -37,6 +37,7 @@ import es.kim.crpg.core.audio.VillageSoundPlayer
 import es.kim.crpg.game.catalog.ItemCatalog
 import es.kim.crpg.game.rules.ItemAppraisalRules
 import es.kim.crpg.game.rules.DeathNarratives
+import es.kim.crpg.game.rules.ArmorSetRules
 import es.kim.crpg.ui.common.AntiqueGameDialog
 import es.kim.crpg.ui.common.GameUiTheme
 import es.kim.crpg.ui.common.gameScrollView
@@ -1718,11 +1719,15 @@ class MainActivity : GameActivity() {
         currentDungeonFloor = startFloor
         updateBackgroundMusic()
         val carriedInventory = ownedItems.filter { it.container == "INVENTORY" }
-        val equippedHealthBonus = EQUIPMENT_CATEGORIES.sumOf { category ->
+        val equippedDefinitions = EQUIPMENT_CATEGORIES.mapNotNull { category ->
             val categoryItems = carriedInventory.filter { ItemCatalog.category(it.itemCode) == category }
             val selected = categoryItems.firstOrNull { it.isEquipped } ?: categoryItems.firstOrNull()
-            selected?.let { ItemCatalog.definition(it.itemCode)?.healthBonus } ?: 0
+            selected?.let { ItemCatalog.definition(it.itemCode) }
         }
+        val equippedHealthBonus = equippedDefinitions.sumOf { it.healthBonus } + ArmorSetRules.totalHealthBonus(
+            equippedDefinitions.filter { it.category in setOf("HELMET", "ARMOR", "BOOTS", "CLOAK") }.map { it.code },
+            ItemCatalog.allDefinitions.associateBy { it.code }
+        )
         val appraisedAttackByCode = carriedInventory.mapNotNull { item -> item.appraisedAttackPower?.let { item.itemCode to it } }.toMap()
         val overlay = FrameLayout(this)
         shopOverlay = overlay

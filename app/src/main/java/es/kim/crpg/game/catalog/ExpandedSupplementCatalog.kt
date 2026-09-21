@@ -1,6 +1,7 @@
 package es.kim.crpg.game.catalog
 
 import es.kim.crpg.data.ItemDefinitionEntity
+import es.kim.crpg.game.rules.ArmorSetRules
 
 object ExpandedSupplementCatalog {
     private data class Grade(val code: String, val label: String, val tier: Int, val price: Int)
@@ -32,35 +33,57 @@ object ExpandedSupplementCatalog {
     private fun MutableList<ItemDefinitionEntity>.addItems(category: String, label: String, count: Int, assets: List<String>) {
         repeat(count) { index ->
             val grade = grades[(index / 4).coerceAtMost(grades.lastIndex)]
-            val health = when (category) {
-                "CLOAK" -> 2 + grade.tier + index % 3
-                else -> grade.tier + index % 2
-            }
-            val effect = when (category) {
+            val health = if (category == "CLOAK") 0 else grade.tier + index % 2
+            val baseEffect = when (category) {
                 "ACCESSORY" -> listOf("ATTACK_PLUS_1", "GOLD_BONUS_20", "MOVE2_ATTACK_PLUS_2")[index % 3]
                 "AUXILIARY" -> listOf("SPEAR_BONUS_3", "RANGED_ROOT_20", "RANGED_BLOCK_20")[index % 3]
-                else -> listOf(null, "MELEE_BLOCK_30", "RANGED_BLOCK_30")[index % 3]
-            }.takeIf { grade.tier >= 2 }
-            val effectText = when (effect) {
-                "ATTACK_PLUS_1" -> "모든 무기 공격력 +1"
-                "GOLD_BONUS_20" -> "골드 획득 시 20% 확률로 1G 추가"
-                "MOVE2_ATTACK_PLUS_2" -> "2칸 이상 이동 후 공격력 +2"
-                "SPEAR_BONUS_3" -> "창 공격 시 추가 피해 3"
-                "RANGED_ROOT_20" -> "원거리 적중 시 20% 확률로 1턴 속박"
-                "RANGED_BLOCK_20" -> "원거리 공격을 20% 확률로 무효화"
-                "MELEE_BLOCK_30" -> "근접 공격을 30% 확률로 무효화"
-                "RANGED_BLOCK_30" -> "원거리 공격을 30% 확률로 무효화"
-                else -> "${themes[index]} 기운으로 최대 체력을 강화"
+                else -> cloakEffect(index, grade.tier)
+            }.takeIf { grade.tier >= 2 || category == "CLOAK" }
+            val effect = if (category == "CLOAK" && index < 28) {
+                listOfNotNull("SET=${index.toString().padStart(2, '0')}", baseEffect).joinToString("|")
+            } else baseEffect
+            val effectText = when {
+                baseEffect?.startsWith("RANGED_BLOCK=") == true -> "원거리 공격을 ${baseEffect.substringAfter('=')}% 확률로 완전히 방어"
+                baseEffect?.startsWith("MELEE_BLOCK=") == true -> "인접 공격을 ${baseEffect.substringAfter('=')}% 확률로 완전히 방어"
+                baseEffect?.startsWith("DUAL_BLOCK=") == true -> "근접·원거리 공격을 각각 ${baseEffect.substringAfter('=')}% 확률로 완전히 방어"
+                baseEffect?.startsWith("DODGE=") == true -> "모든 공격을 ${baseEffect.substringAfter('=')}% 확률로 회피"
+                baseEffect?.startsWith("DAMAGE_REDUCE=") == true -> "받는 피해를 ${baseEffect.substringAfter('=')} 감소"
+                baseEffect == "ATTACK_PLUS_1" -> "모든 무기 공격력 +1"
+                baseEffect == "GOLD_BONUS_20" -> "골드 획득 시 20% 확률로 1G 추가"
+                baseEffect == "MOVE2_ATTACK_PLUS_2" -> "2칸 이상 이동 후 공격력 +2"
+                baseEffect == "SPEAR_BONUS_3" -> "창 공격 시 추가 피해 3"
+                baseEffect == "RANGED_ROOT_20" -> "원거리 적중 시 20% 확률로 1턴 속박"
+                baseEffect == "RANGED_BLOCK_20" -> "원거리 공격을 20% 확률로 무효화"
+                baseEffect == "MELEE_BLOCK_30" -> "근접 공격을 30% 확률로 무효화"
+                baseEffect == "RANGED_BLOCK_30" -> "원거리 공격을 30% 확률로 무효화"
+                else -> "고유 효과 없음"
             }
+            val setText = if (category == "CLOAK" && index < 28) {
+                "세트 계열: ${themes[index]} · 2세트 최대 체력 +${ArmorSetRules.twoPieceBonus(grade.code)} · " +
+                    "3세트 추가 최대 체력 +${ArmorSetRules.threePieceBonus(grade.code)} · "
+            } else if (category == "CLOAK") "독립 계열: ${themes[index]} · " else "세트 계열: ${themes[index]} · "
             add(ItemDefinitionEntity(
                 code = "exp_${category.lowercase()}_${index.toString().padStart(2, '0')}",
                 name = "${grade.label} ${themes[index]} $label", category = category, grade = grade.code,
                 storeType = "DROP_ONLY", basePrice = grade.price + index * (grade.tier + 1), unitsPerPurchase = 1,
                 assetPath = assets[index % assets.size], isConsumable = false, maxStack = 1,
                 attackPower = 0, attackTurnCost = 0, attackRange = 0, healthBonus = health,
-                detail = "세트 계열: ${themes[index]} · 최대 체력 +$health · $effectText", specialEffect = effect, dropRate = .002,
+                detail = "$setText$effectText", specialEffect = effect, dropRate = .002,
                 playerSheetPath = null, sortOrder = 2_500 + when (category) { "ACCESSORY" -> index; "AUXILIARY" -> 100 + index; else -> 200 + index }
             ))
+        }
+    }
+
+    private fun cloakEffect(index: Int, tier: Int): String {
+        val block = (15 + tier * 4).coerceAtMost(40)
+        val dodge = (8 + tier * 3).coerceAtMost(26)
+        return when (index % 6) {
+            0 -> "RANGED_BLOCK=$block"
+            1 -> "MELEE_BLOCK=$block"
+            2 -> "DODGE=$dodge"
+            3 -> "DAMAGE_REDUCE=${1 + tier / 2}"
+            4 -> "DUAL_BLOCK=${(block - 5).coerceAtLeast(10)}"
+            else -> "RANGED_BLOCK=${(block + 5).coerceAtMost(40)}"
         }
     }
 }
