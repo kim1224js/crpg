@@ -17,8 +17,8 @@ android {
         applicationId = "es.kim.crpg"
         minSdk = 35
         targetSdk = 37
-        versionCode = 80
-        versionName = "8.0"
+        versionCode = 81
+        versionName = "8.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
