@@ -1695,7 +1695,10 @@ class MainActivity : GameActivity() {
         val actions = mutableListOf(AntiqueGameDialog.Action("마을에 남기"))
         actions += AntiqueGameDialog.Action("지하 1층 입장", primary = unlockedDungeonStartFloor < 10) { showDungeonDemo(1) }
         if (unlockedDungeonStartFloor >= 10) {
-            actions += AntiqueGameDialog.Action("지하 10층 입장", primary = true) { showDungeonDemo(10) }
+            actions += AntiqueGameDialog.Action("지하 10층 입장", primary = unlockedDungeonStartFloor < 20) { showDungeonDemo(10) }
+        }
+        if (unlockedDungeonStartFloor >= 20) {
+            actions += AntiqueGameDialog.Action("지하 20층 입장", primary = true) { showDungeonDemo(20) }
         }
         AntiqueGameDialog.show(
             this,
@@ -1790,6 +1793,11 @@ class MainActivity : GameActivity() {
                         highestFloor = floor
                         val ownerId = currentPlayerId
                         databaseExecutor.execute { gameDatabase.loginProfileDao().updateHighestFloor(ownerId, floor) }
+                    }
+                    if (floor >= 20 && unlockedDungeonStartFloor < 20) {
+                        unlockedDungeonStartFloor = 20
+                        val ownerId = currentPlayerId
+                        databaseExecutor.execute { gameDatabase.loginProfileDao().updateUnlockedDungeonStartFloor(ownerId, 20) }
                     }
                     updateBackgroundMusic()
                 },
