@@ -340,9 +340,6 @@ class DungeonDemoView(
     private var multiTileMovementActive = false
     private var pendingAutoWalkContinuation: (() -> Unit)? = null
     private var movementPreviewTiles: Set<Pair<Int, Int>> = emptySet()
-    private var autoWalkDamagedDuringRound = false
-    private var autoWalkHasRemainingMovement = false
-    private var pendingMovementEncounterName: String? = null
     private var playerMoveAnimation: PlayerMoveAnimation? = null
     private val dungeonPreferences = context.getSharedPreferences("crpg_dungeon_preferences", Context.MODE_PRIVATE)
     private var combatSpeed = dungeonPreferences.getInt("combat_speed", 1).coerceIn(1, 3)
@@ -1018,9 +1015,8 @@ class DungeonDemoView(
             message = "선택한 위치로 이동 중"
             continueExplorationAutoWalk(goals)
         }
-        val visibleMonsterPresent = visibleLivingMonster() != null
-        if (path.size > 1 || visibleMonsterPresent) {
-            confirmMultiTileMovement(path, visibleMonsterPresent, beginMovement)
+        if (path.size > 1) {
+            confirmMultiTileMovement(path, visibleLivingMonster() != null, beginMovement)
         } else beginMovement()
     }
 
@@ -1067,7 +1063,6 @@ class DungeonDemoView(
     }
 
     private fun continueExplorationAutoWalk(goals: Set<Pair<Int, Int>>) {
-        if (pauseAutoWalkForNewMonster { continueExplorationAutoWalk(goals) }) return
         val path = findPathToGoals(goals)
         if (path == null || path.isEmpty()) {
             autoWalking = false
@@ -1087,15 +1082,12 @@ class DungeonDemoView(
         playAction(player, 1, 420L)
         focusCamera(player.column, player.row)
         phase = Phase.MONSTERS
-        autoWalkHasRemainingMovement = multiTileMovementActive && path.size > 1
         val discoveredMonster = visibleLivingMonster()?.takeUnless { it.alerted }
-        if (discoveredMonster != null) {
+        if (multiTileMovementActive && discoveredMonster != null) {
             discoveredMonster.alerted = true
             discoveredMonster.alertIndicatorUntil = System.currentTimeMillis() + combatDuration(900L)
-            pendingMovementEncounterName = discoveredMonster.name
             focusedMonster = discoveredMonster
         }
-        autoWalkDamagedDuringRound = false
         pendingAutoWalkContinuation = { continueExplorationAutoWalk(goals) }
         invalidate()
         postDelayed({ finishMovementTurn() }, combatDuration(420L))
@@ -1120,8 +1112,6 @@ class DungeonDemoView(
         autoWalking = false
         multiTileMovementActive = false
         pendingAutoWalkContinuation = null
-        autoWalkHasRemainingMovement = false
-        pendingMovementEncounterName = null
         movementPreviewTiles = emptySet()
         message = "장거리 이동을 중단했습니다"
         persistRun()
@@ -1306,15 +1296,7 @@ class DungeonDemoView(
     private fun resumePendingMovement() {
         val continuation = pendingAutoWalkContinuation
         pendingAutoWalkContinuation = null
-        val encounterName = pendingMovementEncounterName
-        pendingMovementEncounterName = null
-        val damaged = autoWalkDamagedDuringRound
-        autoWalkDamagedDuringRound = false
-        if (continuation != null && (damaged || encounterName != null)) {
-            askContinueMovementAfterInterruption(continuation, encounterName, damaged)
-        } else {
-            continuation?.let { post(it) }
-        }
+        continuation?.let { post(it) }
     }
 
     private fun currentEquipmentHealthBonus(): Int {
@@ -1507,9 +1489,8 @@ class DungeonDemoView(
                 walkPathWithoutTurns(path, 0, "목적지에 도착했습니다", onArrived)
             }
         }
-        val visibleMonsterPresent = visibleLivingMonster() != null
-        if (path.size > 1 || visibleMonsterPresent) {
-            confirmMultiTileMovement(path, visibleMonsterPresent, beginMovement)
+        if (path.size > 1) {
+            confirmMultiTileMovement(path, visibleLivingMonster() != null, beginMovement)
         } else beginMovement()
     }
 
@@ -1518,7 +1499,6 @@ class DungeonDemoView(
         movingMessage: String,
         onArrived: () -> Unit
     ) {
-        if (pauseAutoWalkForNewMonster { continueCombatAutoApproach(goals, movingMessage, onArrived) }) return
         val path = findPathToGoals(goals)
         if (path == null) {
             autoWalking = false
@@ -1553,14 +1533,11 @@ class DungeonDemoView(
         focusCamera(player.column, player.row)
         phase = Phase.MONSTERS
         message = movingMessage
-        autoWalkHasRemainingMovement = multiTileMovementActive && path.size > 1
-        visibleLivingMonster()?.takeUnless { it.alerted }?.let { discoveredMonster ->
+        visibleLivingMonster()?.takeUnless { it.alerted }?.takeIf { multiTileMovementActive }?.let { discoveredMonster ->
             discoveredMonster.alerted = true
             discoveredMonster.alertIndicatorUntil = System.currentTimeMillis() + combatDuration(900L)
-            pendingMovementEncounterName = discoveredMonster.name
             focusedMonster = discoveredMonster
         }
-        autoWalkDamagedDuringRound = false
         pendingAutoWalkContinuation = { continueCombatAutoApproach(goals, movingMessage, onArrived) }
         invalidate()
         postDelayed({ finishMovementTurn() }, combatDuration(520L))
@@ -1622,8 +1599,6 @@ class DungeonDemoView(
     private fun openDoorAndPassTurn(cell: Pair<Int, Int>, continuation: (() -> Unit)? = null) {
         if (!openDoor(cell)) return
         phase = Phase.MONSTERS
-        autoWalkHasRemainingMovement = multiTileMovementActive && continuation != null
-        autoWalkDamagedDuringRound = false
         pendingAutoWalkContinuation = continuation
         postDelayed({ beginMonsterTurns(1) }, combatDuration(320L))
     }
@@ -3048,7 +3023,6 @@ class DungeonDemoView(
             damage = (damage * (100 + specialValue("TAKEN_MORE")) + 99) / 100
             impactColumn = player.column; impactRow = player.row; impactUntil = System.currentTimeMillis() + 760L
             player.hp = max(0, player.hp - damage)
-            if (damage > 0 && autoWalking && autoWalkHasRemainingMovement) autoWalkDamagedDuringRound = true
             turnsWithoutDamage = 0
             when (definition.code) {
                 "plague_rat" -> {
@@ -4660,16 +4634,6 @@ class DungeonDemoView(
         return value * density * scale
     }
 
-    private fun pauseAutoWalkForNewMonster(continuation: () -> Unit): Boolean {
-        val visibleMonster = visibleLivingMonster()?.takeUnless { it.alerted } ?: return false
-        visibleMonster.alerted = true
-        visibleMonster.alertIndicatorUntil = System.currentTimeMillis() + combatDuration(900L)
-        focusedMonster = visibleMonster
-        focusCamera(player.column, player.row)
-        askContinueMovementAfterInterruption(continuation, visibleMonster.name, damaged = false)
-        return true
-    }
-
     private fun visibleLivingMonster(): UnitSprite? =
         monsters.firstOrNull { it.alive && it.hp > 0 && isMonsterVisible(it) }
 
@@ -4678,63 +4642,6 @@ class DungeonDemoView(
             monster.alerted = true
             monster.alertIndicatorUntil = System.currentTimeMillis() + combatDuration(900L)
         }
-    }
-
-    private fun askContinueMovementAfterInterruption(
-        continuation: () -> Unit,
-        encounterName: String?,
-        damaged: Boolean
-    ) {
-        autoWalking = false
-        phase = Phase.PLAYER
-        message = when {
-            encounterName != null && damaged -> "$encounterName 발견 및 피격 · 계속 이동하시겠습니까?"
-            encounterName != null -> "$encounterName 발견 · 계속 이동하시겠습니까?"
-            else -> "이동 중 피해를 받았습니다 · 계속 이동하시겠습니까?"
-        }
-        invalidate()
-        AntiqueGameDialog.show(
-            context,
-            AntiqueGameDialog.Config(
-                title = when {
-                    encounterName != null && damaged -> "몬스터 발견 및 피격"
-                    encounterName != null -> "새로운 몬스터 발견"
-                    else -> "이동 중 피격"
-                },
-                subtitle = "현재 HP ${player.hp}/${player.maxHp}",
-                body = when {
-                    encounterName != null && damaged -> "${encounterName}을 발견했고 공격 피해도 받았습니다.\n남은 경로를 계속 이동하시겠습니까?"
-                    encounterName != null -> "${encounterName}이 시야에 들어왔습니다.\n남은 경로를 계속 이동하시겠습니까?"
-                    else -> "몬스터의 공격으로 피해를 받았습니다.\n남은 경로를 계속 이동하시겠습니까?"
-                },
-                warning = "계속 이동하면 다음 칸에서도 몬스터가 행동합니다.",
-                actions = listOf(
-                    AntiqueGameDialog.Action("이동 중단") {
-                        multiTileMovementActive = false
-                        autoWalkHasRemainingMovement = false
-                        pendingMovementEncounterName = null
-                        message = "피격 후 이동을 중단했습니다"
-                        persistRun()
-                        invalidate()
-                    },
-                    AntiqueGameDialog.Action("계속 이동", primary = true) {
-                        autoWalking = true
-                        pendingMovementEncounterName = null
-                        message = "남은 경로로 이동을 계속합니다"
-                        post(continuation)
-                    }
-                ),
-                bodyHeightDp = 105,
-                onCancel = {
-                    multiTileMovementActive = false
-                    autoWalkHasRemainingMovement = false
-                    pendingMovementEncounterName = null
-                    message = "피격 후 이동을 중단했습니다"
-                    persistRun()
-                    invalidate()
-                }
-            )
-        )
     }
 
 }
