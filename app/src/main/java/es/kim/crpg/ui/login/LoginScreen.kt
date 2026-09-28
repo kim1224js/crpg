@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity
@@ -15,6 +16,8 @@ import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import kotlin.math.min
 
@@ -25,6 +28,9 @@ class LoginScreen(
     val nameInput = EditText(context)
     val autoLoginCheckBox = CheckBox(context)
     val deathNoticeText = TextView(context)
+    private val deathNoticeCard = LinearLayout(context)
+    private val deathCauseText = TextView(context)
+    private val deathHeirText = TextView(context)
     private val namePlaceholder = TextView(context)
     private val loginButton = TextView(context)
 
@@ -101,14 +107,58 @@ class LoginScreen(
         autoLoginCheckBox.visibility = View.GONE
         addView(autoLoginCheckBox, LayoutParams(1, 1))
 
-        deathNoticeText.apply {
+        deathNoticeCard.apply {
             visibility = View.GONE
-            setTextColor(0xFFFFB7A8.toInt())
-            textSize = 16f
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(20), dp(12), dp(20), dp(12))
+            elevation = dp(12).toFloat()
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                setColor(0xF218100D.toInt())
+                cornerRadius = dp(12).toFloat()
+                setStroke(dp(2), 0xFFD0A653.toInt())
+            }
+            addView(TextView(context).apply {
+                text = "◆  가문의 기록  ◆"
+                setTextColor(0xFFFFD786.toInt())
+                textSize = 18f
+                typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+                gravity = Gravity.CENTER
+                includeFontPadding = false
+            }, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(27)))
+            addView(deathCauseText.apply {
+                setTextColor(0xFFFFA392.toInt())
+                textSize = 14f
+                typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                includeFontPadding = false
+                maxLines = 1
+            }, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(25)))
+            addView(View(context).apply { setBackgroundColor(0xFF725322.toInt()) }, LinearLayout.LayoutParams(
+                LayoutParams.MATCH_PARENT, dp(1)
+            ).apply { topMargin = dp(3); bottomMargin = dp(5) })
+            addView(ScrollView(context).apply {
+                isFillViewport = true
+                overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+                addView(deathNoticeText.apply {
+                    setTextColor(0xFFF4E8D3.toInt())
+                    textSize = 14f
+                    gravity = Gravity.CENTER
+                    setLineSpacing(dp(2).toFloat(), 1f)
+                    setPadding(dp(8), 0, dp(8), 0)
+                }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+            }, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+            addView(deathHeirText.apply {
+                setTextColor(0xFFD7C39D.toInt())
+                textSize = 12f
+                typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                includeFontPadding = false
+                maxLines = 2
+            }, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(34)).apply { topMargin = dp(5) })
         }
-        addView(deathNoticeText, LayoutParams(1, 1))
+        addView(deathNoticeCard, LayoutParams(1, 1))
 
         nameInput.clearFocus()
         requestFocus()
@@ -123,6 +173,17 @@ class LoginScreen(
         }
     }
 
+    fun showDeathNotice(deceasedName: String, generation: Int, cause: String, message: String) {
+        deathCauseText.text = "사망 원인  ·  $cause"
+        deathNoticeText.text = message
+        deathHeirText.text = "${generation}세 ${deceasedName}의 뜻을 이을 후계자 이름을 입력하세요"
+        deathNoticeCard.visibility = View.VISIBLE
+    }
+
+    fun hideDeathNotice() {
+        deathNoticeCard.visibility = View.GONE
+    }
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
         val height = MeasureSpec.getSize(heightMeasureSpec)
@@ -133,7 +194,7 @@ class LoginScreen(
         place(nameInput, offsetX, offsetY, scale, 390f, 505f, 500f, 88f)
         place(namePlaceholder, offsetX, offsetY, scale, 390f, 505f, 500f, 88f)
         place(loginButton, offsetX, offsetY, scale, 495f, 612f, 290f, 82f)
-        place(deathNoticeText, offsetX, offsetY, scale, 300f, 405f, 680f, 82f)
+        place(deathNoticeCard, offsetX, offsetY, scale, 270f, 292f, 740f, 190f)
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
     }
 
@@ -152,6 +213,8 @@ class LoginScreen(
             topMargin = (offsetY + y * scale).toInt()
         }
     }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private companion object {
         const val DESIGN_WIDTH = 1280f

@@ -91,7 +91,6 @@ class MainActivity : GameActivity() {
     private val loginOverlay get() = loginScreen
     private val nameInput get() = loginScreen.nameInput
     private val autoLoginCheckBox get() = loginScreen.autoLoginCheckBox
-    private val deathNoticeText get() = loginScreen.deathNoticeText
     private lateinit var villageMapOverlay: VillageMapOverlay
     private lateinit var facilityUiController: FacilityUiController
     private val villageInteractionOverlay get() = villageMapOverlay
@@ -391,7 +390,7 @@ class MainActivity : GameActivity() {
         updateVillageTerritoryTitle()
         hideLoginKeyboard()
         loginOverlay.visibility = View.GONE
-        deathNoticeText.visibility = View.GONE
+        loginScreen.hideDeathNotice()
         settingsController.setLauncherVisible(true)
         setVillageHotspotsEnabled(true)
         updateTravelingMerchantVisibility()
@@ -543,11 +542,11 @@ class MainActivity : GameActivity() {
     }
 
     private fun openGeneralStore() {
-        openStore("ui/village/building_general_store.png", 0.68f, 0.52f, false)
+        openStore(isBlacksmith = false)
     }
 
     private fun openBlacksmith() {
-        openStore("ui/village/building_blacksmith.png", 0f, 0f, true)
+        openStore(isBlacksmith = true)
     }
 
     private fun updateTravelingMerchantVisibility() {
@@ -642,13 +641,11 @@ class MainActivity : GameActivity() {
         }
     }
 
-    private fun openStore(assetPath: String, originX: Float, originY: Float, isBlacksmith: Boolean) {
+    private fun openStore(isBlacksmith: Boolean) {
         if (shopOverlay != null) return
         villageSoundPlayer?.playDoorOpen()
         setVillageHotspotsEnabled(false)
-        facilityUiController.playEntrance(assetPath, originX, originY, .28f, .48f) {
-            showShopInterface(isBlacksmith)
-        }
+        showShopInterface(isBlacksmith)
     }
 
     private fun openFacility(assetPath: String, originX: Float, originY: Float, onOpened: () -> Unit) {
@@ -1695,7 +1692,10 @@ class MainActivity : GameActivity() {
         val actions = mutableListOf(AntiqueGameDialog.Action("마을에 남기"))
         actions += AntiqueGameDialog.Action("지하 1층 입장", primary = unlockedDungeonStartFloor < 10) { showDungeonDemo(1) }
         if (unlockedDungeonStartFloor >= 10) {
-            actions += AntiqueGameDialog.Action("지하 10층 입장", primary = true) { showDungeonDemo(10) }
+            actions += AntiqueGameDialog.Action("지하 10층 입장", primary = unlockedDungeonStartFloor < 20) { showDungeonDemo(10) }
+        }
+        if (unlockedDungeonStartFloor >= 20) {
+            actions += AntiqueGameDialog.Action("지하 20층 입장", primary = true) { showDungeonDemo(20) }
         }
         AntiqueGameDialog.show(
             this,
@@ -1790,6 +1790,11 @@ class MainActivity : GameActivity() {
                         highestFloor = floor
                         val ownerId = currentPlayerId
                         databaseExecutor.execute { gameDatabase.loginProfileDao().updateHighestFloor(ownerId, floor) }
+                    }
+                    if (floor >= 20 && unlockedDungeonStartFloor < 20) {
+                        unlockedDungeonStartFloor = 20
+                        val ownerId = currentPlayerId
+                        databaseExecutor.execute { gameDatabase.loginProfileDao().updateUnlockedDungeonStartFloor(ownerId, 20) }
                     }
                     updateBackgroundMusic()
                 },
@@ -1999,8 +2004,12 @@ class MainActivity : GameActivity() {
             runOnUiThread {
                 autoLoginCheckBox.isChecked = false
                 prefillHeirName(settlement.deceasedName, settlement.generation)
-                deathNoticeText.text = "사망 원인 · ${settlement.deathCauseLabel}\n${settlement.deathMessage}\n${settlement.generation}세 ${settlement.deceasedName} 사망 · 새 캐릭터 이름을 입력하세요."
-                deathNoticeText.visibility = View.VISIBLE
+                loginScreen.showDeathNotice(
+                    settlement.deceasedName,
+                    settlement.generation,
+                    settlement.deathCauseLabel,
+                    settlement.deathMessage
+                )
                 loginOverlay.visibility = View.VISIBLE
                 loginOverlay.bringToFront()
                 settingsController.setLauncherVisible(false)
@@ -2044,8 +2053,7 @@ class MainActivity : GameActivity() {
         hasEnteredVillage = false
         prefillHeirName(deceasedName, generation)
         autoLoginCheckBox.isChecked = false
-        deathNoticeText.text = "사망 원인 · $deathCauseLabel\n$deathMessage\n${generation}세 $deceasedName 사망 · 새 캐릭터 이름을 입력하세요."
-        deathNoticeText.visibility = View.VISIBLE
+        loginScreen.showDeathNotice(deceasedName, generation, deathCauseLabel, deathMessage)
         loginOverlay.visibility = View.VISIBLE
         loginOverlay.bringToFront()
         settingsController.setLauncherVisible(false)
@@ -2222,7 +2230,7 @@ class MainActivity : GameActivity() {
     private fun returnToVillageAfterClear() {
         isDungeonActive = false
         hasEnteredVillage = true
-        deathNoticeText.visibility = View.GONE
+        loginScreen.hideDeathNotice()
         loginOverlay.visibility = View.GONE
         setVillageHotspotsEnabled(true)
         updateTravelingMerchantVisibility()

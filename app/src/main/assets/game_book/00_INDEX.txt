@@ -1,5 +1,5 @@
 CRPG 개발자 게임북
-업데이트 기준: DB v62
+업데이트 기준: DB v63
 
 01_COMMON_CONFIG.txt  공통 수치와 변경 지점
 02_GAME_FLOW.txt      로그인부터 사망·계승까지의 흐름

@@ -26,6 +26,8 @@ object MonsterRelicSeeder {
                     rate = c.getDouble(3)
                 }
             }
+            // The equipment branch may already have applied these options in DB v62.
+            if (existing && previousDetail.endsWith("$name 전용 드랍 유물")) return@forEachIndexed
             // A stable pool gives each species a different combination; all values are persisted in DB.
             val pool = listOf(
                 "KILL_ROOT" to (if (boss) 2 else 1), "LIFESTEAL" to (if (boss) 30 else 15),
