@@ -855,7 +855,7 @@ class MainActivity : GameActivity() {
                             .filter { it.category == "WEAPON" && it.grade in rareOrHigher }
                             .randomOrNull()
                     } else {
-                        ItemCatalog.allDefinitions.filter { !it.isConsumable && it.grade == boxDefinition.grade }.randomOrNull()
+                        ItemCatalog.allDefinitions.filter { !it.isConsumable && it.category != "RELIC" && it.grade == boxDefinition.grade }.randomOrNull()
                     }
                 } else null
                 val usedSlots = dao.getForOwner(currentPlayerId).filter { it.container == current.container }.map { it.slotIndex }.toSet()

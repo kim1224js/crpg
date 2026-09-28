@@ -9,6 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import es.kim.crpg.game.catalog.ExpandedWeaponCatalog
 import es.kim.crpg.game.catalog.ExpandedArmorCatalog
 import es.kim.crpg.game.catalog.ExpandedSupplementCatalog
+import es.kim.crpg.game.catalog.SpecialEquipmentCatalog
 
 @Database(
     entities = [
@@ -18,7 +19,7 @@ import es.kim.crpg.game.catalog.ExpandedSupplementCatalog
         MonsterFloorSpawnEntity::class, DungeonInteractableDefinitionEntity::class,
         DungeonInteractableSpawnEntity::class, DungeonRunEntity::class
     ],
-    version = 61,
+    version = 62,
     exportSchema = true
 )
 abstract class GameDatabase : RoomDatabase() {
@@ -471,6 +472,15 @@ abstract class GameDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_61_62 = object : Migration(61, 62) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                seedExpandedWeapons(db)
+                seedExpandedArmor(db)
+                seedExpandedSupplements(db)
+                MonsterRelicSeeder.seed(db)
+            }
+        }
+
         private val CREATE_AND_SEED = object : Callback() {
             override fun onCreate(db: SupportSQLiteDatabase) {
                 super.onCreate(db)
@@ -530,6 +540,7 @@ abstract class GameDatabase : RoomDatabase() {
                 arrayOf("slime", "슬라임", 7, 1, 1, 1, 1, 2, 1, .70, "ui/dungeon/monsters/slime_animation_sheet.png", 3, 4)
             ).forEach { db.execSQL(monsterSql, it) }
 
+            MonsterRelicSeeder.seed(db)
             val appraisalSql = "INSERT OR REPLACE INTO appraisal_rule VALUES (?,?,?,?,?)"
             listOf<Array<Any?>>(
                 arrayOf("HIGH", 0, .90, 0xFF8FC58A, 0), arrayOf("RARE", 0, .80, 0xFF4EA5FF, 1),
@@ -594,7 +605,7 @@ abstract class GameDatabase : RoomDatabase() {
 
         private fun seedExpandedWeapons(db: SupportSQLiteDatabase) {
             val sql = "INSERT OR REPLACE INTO item_definition VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
-            ExpandedWeaponCatalog.all().forEach { item ->
+            ExpandedWeaponCatalog.all().map(SpecialEquipmentCatalog::enrich).forEach { item ->
                 db.execSQL(sql, arrayOf<Any?>(
                     item.code, item.name, item.category, item.grade, item.storeType, item.basePrice,
                     item.unitsPerPurchase, item.assetPath, if (item.isConsumable) 1 else 0, item.maxStack,
@@ -607,7 +618,7 @@ abstract class GameDatabase : RoomDatabase() {
 
         private fun seedExpandedArmor(db: SupportSQLiteDatabase) {
             val sql = "INSERT OR REPLACE INTO item_definition VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
-            ExpandedArmorCatalog.all().forEach { item ->
+            ExpandedArmorCatalog.all().map(SpecialEquipmentCatalog::enrich).forEach { item ->
                 db.execSQL(sql, arrayOf<Any?>(
                     item.code, item.name, item.category, item.grade, item.storeType, item.basePrice,
                     item.unitsPerPurchase, item.assetPath, if (item.isConsumable) 1 else 0, item.maxStack,
@@ -619,7 +630,7 @@ abstract class GameDatabase : RoomDatabase() {
 
         private fun seedExpandedSupplements(db: SupportSQLiteDatabase) {
             val sql = "INSERT OR REPLACE INTO item_definition VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
-            ExpandedSupplementCatalog.all().forEach { item ->
+            ExpandedSupplementCatalog.all().map(SpecialEquipmentCatalog::enrich).forEach { item ->
                 db.execSQL(sql, arrayOf<Any?>(
                     item.code, item.name, item.category, item.grade, item.storeType, item.basePrice,
                     item.unitsPerPurchase, item.assetPath, if (item.isConsumable) 1 else 0, item.maxStack,
@@ -911,7 +922,7 @@ abstract class GameDatabase : RoomDatabase() {
                     context.applicationContext,
                     GameDatabase::class.java,
                     "crpg_game.db"
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45, MIGRATION_45_46, MIGRATION_46_47, MIGRATION_47_48, MIGRATION_48_49, MIGRATION_49_50, MIGRATION_50_51, MIGRATION_51_52, MIGRATION_52_53, MIGRATION_53_54, MIGRATION_54_55, MIGRATION_55_56, MIGRATION_56_57, MIGRATION_57_58, MIGRATION_58_59, MIGRATION_59_60, MIGRATION_60_61).addCallback(CREATE_AND_SEED).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45, MIGRATION_45_46, MIGRATION_46_47, MIGRATION_47_48, MIGRATION_48_49, MIGRATION_49_50, MIGRATION_50_51, MIGRATION_51_52, MIGRATION_52_53, MIGRATION_53_54, MIGRATION_54_55, MIGRATION_55_56, MIGRATION_56_57, MIGRATION_57_58, MIGRATION_58_59, MIGRATION_59_60, MIGRATION_60_61, MIGRATION_61_62).addCallback(CREATE_AND_SEED).build().also { instance = it }
             }
         }
     }

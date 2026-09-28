@@ -60,9 +60,9 @@ object ItemCatalog {
         val categoryName = when (item.category) {
             "WEAPON" -> "무기"; "ARMOR" -> "방어구 · 갑옷"; "HELMET" -> "방어구 · 투구"
             "BOOTS" -> "방어구 · 신발"; "CLOAK" -> "방어구 · 망토"; "AUXILIARY" -> "보조장비"
-            "ACCESSORY" -> "액세서리"; "RELIC" -> "유물 · 소지 시 발동"; else -> item.category
+            "ACCESSORY" -> "액세서리"; "RELIC" -> "유물 · 장착 시 발동"; else -> item.category
         }
-        val effectDescription = if ('|' in item.specialEffect.orEmpty()) item.detail else when (item.specialEffect) {
+        val effectDescription = if ('|' in item.specialEffect.orEmpty() || '=' in item.specialEffect.orEmpty()) item.detail else when (item.specialEffect) {
             "ADJACENT_SWEEP" -> "휩쓸기: 캐릭터 주변 1칸의 모든 적을 한 번에 공격"
             "LINE_THRUST" -> "직선 찌르기: 사거리 안의 일직선 적을 모두 공격"
             "KILL_PIERCE" -> "처치 관통: 앞의 적이 죽으면 뒤의 적에게 탄환 관통"

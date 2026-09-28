@@ -1,8 +1,11 @@
 CRPG 개발자 게임 정보 BOOK
 ===========================
 
-기준일: 2026-08-26
-데이터베이스: Room DB version 15
+최신 변경일: 2026-09-28
+데이터베이스: Room DB version 62
+최신 장비 특수효과·몬스터 전용 유물: game_book/14_SPECIAL_EQUIPMENT.txt
+몬스터별 유물 배정표: game_book/15_MONSTER_RELICS.txt
+아래 본문에는 과거 구현 기록이 포함되어 있으므로 최신 변경 문서를 우선한다.
 기준 소스:
 - data/GameDatabase.kt
 - ui/dungeon/DungeonDemoView.kt
