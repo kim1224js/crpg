@@ -15,6 +15,7 @@ import android.view.ViewGroup
 import android.view.Window
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -27,13 +28,19 @@ object AntiqueGameDialog {
         val label: String,
         val primary: Boolean = false,
         val onClick: () -> Unit = {},
-        val onInput: ((String) -> Unit)? = null
+        val onInput: ((String) -> Unit)? = null,
+        val onChecked: ((Boolean) -> Unit)? = null
     )
 
     data class Input(
         val initialValue: String = "",
         val hint: String = "",
         val maxLength: Int = 6
+    )
+
+    data class Checkbox(
+        val label: String,
+        val initialChecked: Boolean = false
     )
 
     data class Config(
@@ -49,7 +56,8 @@ object AntiqueGameDialog {
         val autoScrollDurationMs: Long = 12_000L,
         val bodyHeightDp: Int = 280,
         val onCancel: (() -> Unit)? = null,
-        val input: Input? = null
+        val input: Input? = null,
+        val checkbox: Checkbox? = null
     )
 
     fun show(context: Context, config: Config): Dialog {
@@ -118,7 +126,26 @@ object AntiqueGameDialog {
                 ).apply { bottomMargin = dp(context, 10) })
             }
         }
-        val buttons = createActionButtons(context, dialog, config.actions) { inputField?.text?.toString().orEmpty() }
+        val checkboxView = config.checkbox?.let { checkbox ->
+            CheckBox(context).apply {
+                text = checkbox.label
+                isChecked = checkbox.initialChecked
+                setTextColor(0xFFE8DDCA.toInt())
+                textSize = 14f
+                buttonTintList = ColorStateList(
+                    arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                    intArrayOf(GameUiTheme.GOLD, 0xFF8E8175.toInt())
+                )
+                setPadding(dp(context, 4), 0, dp(context, 4), 0)
+            }
+        }
+        val buttons = createActionButtons(
+            context,
+            dialog,
+            config.actions,
+            inputValue = { inputField?.text?.toString().orEmpty() },
+            checkedValue = { checkboxView?.isChecked == true }
+        )
         if (config.actionsAboveBody) {
             panel.addView(buttons, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 48)
@@ -170,6 +197,12 @@ object AntiqueGameDialog {
             })
         }
 
+        checkboxView?.let { checkbox ->
+            panel.addView(checkbox, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 42)
+            ).apply { bottomMargin = dp(context, 8) })
+        }
+
         if (!config.actionsAboveBody) {
             panel.addView(buttons, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 48)
@@ -214,7 +247,8 @@ object AntiqueGameDialog {
         context: Context,
         dialog: Dialog,
         actions: List<Action>,
-        inputValue: () -> String
+        inputValue: () -> String,
+        checkedValue: () -> Boolean
     ) = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER
@@ -231,7 +265,11 @@ object AntiqueGameDialog {
                 background = actionBackground(context, action.primary)
                 setOnClickListener {
                     dialog.dismiss()
-                    action.onInput?.invoke(inputValue()) ?: action.onClick()
+                    when {
+                        action.onInput != null -> action.onInput.invoke(inputValue())
+                        action.onChecked != null -> action.onChecked.invoke(checkedValue())
+                        else -> action.onClick()
+                    }
                 }
             }, LinearLayout.LayoutParams(0, dp(context, 48), 1f).apply {
                 if (index > 0) marginStart = dp(context, 10)

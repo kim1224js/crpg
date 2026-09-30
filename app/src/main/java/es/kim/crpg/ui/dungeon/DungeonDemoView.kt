@@ -339,6 +339,8 @@ class DungeonDemoView(
     private var autoWalking = false
     private var multiTileMovementActive = false
     private var pendingAutoWalkContinuation: (() -> Unit)? = null
+    private var pendingMovementStopGuide = false
+    private var movementStopGuideShownThisRun = false
     private var movementPreviewTiles: Set<Pair<Int, Int>> = emptySet()
     private var playerMoveAnimation: PlayerMoveAnimation? = null
     private val dungeonPreferences = context.getSharedPreferences("crpg_dungeon_preferences", Context.MODE_PRIVATE)
@@ -2250,8 +2252,11 @@ class DungeonDemoView(
         .mapNotNull { token -> token.substringBefore('=', "").takeIf { it.isNotBlank() }?.let { it to token.substringAfter('=', "") } }
         .toMap()
 
+    private fun isBossDefinition(definition: MonsterDefinitionEntity): Boolean =
+        definition.goldDropRate >= 1.0 && definition.maxHp >= 30 && !definition.code.startsWith("mimic_")
+
     private fun isBossMonster(monster: UnitSprite): Boolean =
-        monster.definition?.let { it.goldDropRate >= 1.0 && it.maxHp >= 30 && !it.code.startsWith("mimic_") } == true
+        monster.definition?.let(::isBossDefinition) == true
 
     private fun pushMonsterAway(monster: UnitSprite, collisionDamage: Int = 0) {
         val dx = (monster.column - player.column).coerceIn(-1, 1)
@@ -2846,7 +2851,7 @@ class DungeonDemoView(
                 finishPlayerDeath()
             } else {
                 persistRun()
-                resumePendingMovement()
+                if (!showMovementStopGuideIfNeeded()) resumePendingMovement()
             }
             invalidate(); return
         }
@@ -3024,6 +3029,14 @@ class DungeonDemoView(
             impactColumn = player.column; impactRow = player.row; impactUntil = System.currentTimeMillis() + 760L
             player.hp = max(0, player.hp - damage)
             turnsWithoutDamage = 0
+            if (
+                damage > 0 && player.hp > 0 && autoWalking && multiTileMovementActive &&
+                !movementStopGuideShownThisRun &&
+                !dungeonPreferences.getBoolean(PREF_HIDE_MOVEMENT_STOP_GUIDE, false)
+            ) {
+                movementStopGuideShownThisRun = true
+                pendingMovementStopGuide = true
+            }
             when (definition.code) {
                 "plague_rat" -> {
                     playerPoisonTurns = max(playerPoisonTurns, relicAdjustedAilmentTurns(3))
@@ -3095,6 +3108,38 @@ class DungeonDemoView(
             message = "${monster.name}이 길을 찾습니다"
         }
         return 620L
+    }
+
+    private fun showMovementStopGuideIfNeeded(): Boolean {
+        if (!pendingMovementStopGuide) return false
+        pendingMovementStopGuide = false
+        AntiqueGameDialog.show(
+            context,
+            AntiqueGameDialog.Config(
+                title = "장거리 이동 중 피격",
+                subtitle = "좌측 상단 · 이동 중단",
+                body = "장거리 이동 중 몬스터에게 공격받아도 이동은 자동으로 계속됩니다.\n\n" +
+                    "위험하다고 판단되면 화면 좌측 상단의 ‘이동 중단’ 버튼을 눌러 남은 이동을 직접 멈출 수 있습니다.",
+                checkbox = AntiqueGameDialog.Checkbox("더 이상 보지 않기"),
+                actions = listOf(
+                    AntiqueGameDialog.Action(
+                        label = "확인",
+                        primary = true,
+                        onChecked = { hideGuide ->
+                            if (hideGuide) {
+                                dungeonPreferences.edit()
+                                    .putBoolean(PREF_HIDE_MOVEMENT_STOP_GUIDE, true)
+                                    .apply()
+                            }
+                            resumePendingMovement()
+                        }
+                    )
+                ),
+                cancelable = false,
+                bodyHeightDp = 190
+            )
+        )
+        return true
     }
 
     private fun damageMonsterDirect(monster: UnitSprite, damage: Int) {
@@ -3274,19 +3319,25 @@ class DungeonDemoView(
         val maximum = monsterCountMax.coerceAtLeast(minimum)
         val countMultiplier = if (mapLayout(floor) == MapLayout.LONG_ROUTE) 2 else 1
         val targetCount = random.nextInt(minimum, maximum + 1) * countMultiplier
-        val bossPool = baseDefinitions.distinctBy { it.code }.filter { it.goldDropRate >= 1.0 && it.maxHp >= 30 && !it.code.startsWith("mimic_") }
+        val bossPool = baseDefinitions.distinctBy { it.code }.filter(::isBossDefinition)
         val regularPool = baseDefinitions.distinctBy { it.code }.filterNot { it in bossPool }.ifEmpty { baseDefinitions }
         val selectedDefinitions = mutableListOf<MonsterDefinitionEntity>()
         if (bossPool.isNotEmpty()) selectedDefinitions += bossPool[random.nextInt(bossPool.size)]
         while (selectedDefinitions.size < targetCount) {
             selectedDefinitions += regularPool[random.nextInt(regularPool.size)]
         }
+        val firstRegularIndex = selectedDefinitions.indexOfFirst { !isBossDefinition(it) }
         return selectedDefinitions.mapIndexed { index, definition ->
+            val boss = isBossDefinition(definition)
             var selected: Pair<Int, Int>? = null
             repeat(100) { attempt ->
                 if (selected != null) return@repeat
-                val entranceSpawn = index == 0 && attempt < 60
-                val column = if (entranceSpawn) random.nextInt(4, 8) else random.nextInt(1, columns - 1)
+                val entranceSpawn = !boss && index == firstRegularIndex && attempt < 60
+                val column = when {
+                    boss -> random.nextInt(columns / 2, columns - 1)
+                    entranceSpawn -> random.nextInt(4, 8)
+                    else -> random.nextInt(1, columns - 1)
+                }
                 val row = if (entranceSpawn) random.nextInt(4, rows - 1) else random.nextInt(1, rows - 1)
                 val cell = column to row
                 if (cell !in occupiedSpawns && cell !in blockedByLayout && distance(column, row, player.column, player.row) >= 2 &&
@@ -3295,11 +3346,23 @@ class DungeonDemoView(
             }
             val fallback = templates[index % templates.size]
             val fallbackCell = fallback.column to fallback.row
+            val fallbackCandidates = (1 until columns - 1).asSequence().flatMap { column ->
+                (1 until rows - 1).asSequence().map { row -> column to row }
+            }.filter { cell ->
+                cell !in occupiedSpawns && cell !in blockedByLayout &&
+                    (!boss || cell.first >= columns / 2) &&
+                    distance(cell.first, cell.second, stairsColumn, stairsRow) >= 2
+            }
             val cell = selected
-                ?: fallbackCell.takeIf { it !in occupiedSpawns && it !in blockedByLayout }
-                ?: (1 until columns - 1).asSequence().flatMap { column ->
-                    (1 until rows - 1).asSequence().map { row -> column to row }
-                }.first { it !in occupiedSpawns && it !in blockedByLayout }
+                ?: fallbackCell.takeIf {
+                    it !in occupiedSpawns && it !in blockedByLayout &&
+                        (!boss || it.first >= columns / 2) &&
+                        distance(it.first, it.second, stairsColumn, stairsRow) >= 2
+                }
+                ?: (if (boss) fallbackCandidates.minByOrNull {
+                    distance(it.first, it.second, stairsColumn, stairsRow)
+                } else fallbackCandidates.firstOrNull())
+                ?: error("층 $floor 몬스터를 배치할 이동 가능 칸이 없습니다")
             occupiedSpawns += cell
             val activeDefinition = if (mapLayout(floor) == MapLayout.LONG_ROUTE) {
                 definition.copy(sensitivity = columns + rows)
@@ -3840,6 +3903,7 @@ class DungeonDemoView(
     private fun elapsedSince(startedAt: Long) = (System.currentTimeMillis() - startedAt).coerceAtLeast(0L)
 
     private companion object {
+        const val PREF_HIDE_MOVEMENT_STOP_GUIDE = "hide_movement_stop_guide"
         const val COMFORTABLE_HEIGHT_DP = 440f
         const val LOOT_DROP_BASE_DURATION_MS = 720L
         const val CHEST_OPEN_BASE_DURATION_MS = 840L
@@ -3891,6 +3955,7 @@ class DungeonDemoView(
     private fun drawUnit(canvas: Canvas, area: RectF, unit: UnitSprite) {
         paint.alpha = 255
         val isMimic = unit.definition?.code?.startsWith("mimic_") == true
+        val isBoss = unit !== player && isBossMonster(unit)
         val frameWidth = unit.sheet.width / 4; val frameHeight = if (isMimic) unit.sheet.height else unit.sheet.height / 4
         val now = System.currentTimeMillis()
         val actionPlaying = now < unit.actionUntil
@@ -3921,13 +3986,51 @@ class DungeonDemoView(
             canvas.drawBitmap(unit.sheet, source, target, paint)
         }
         if (unit !== player) {
-            paint.color = 0xCC17110E.toInt(); canvas.drawRect(centerX - tw * .3f, bottom - targetHeight - dp(7f), centerX + tw * .3f, bottom - targetHeight - dp(2f), paint)
-            paint.color = 0xFFB83A32.toInt(); canvas.drawRect(centerX - tw * .3f, bottom - targetHeight - dp(7f), centerX - tw * .3f + tw * .6f * unit.hp / unit.maxHp, bottom - targetHeight - dp(2f), paint)
-            if (now < unit.alertIndicatorUntil) drawMonsterAlertIndicator(canvas, target, now, unit.alertIndicatorUntil)
+            val healthHalfWidth = tw * if (isBoss) .43f else .3f
+            paint.color = 0xCC17110E.toInt(); canvas.drawRect(centerX - healthHalfWidth, bottom - targetHeight - dp(7f), centerX + healthHalfWidth, bottom - targetHeight - dp(2f), paint)
+            paint.color = if (isBoss) 0xFFD13B31.toInt() else 0xFFB83A32.toInt()
+            canvas.drawRect(centerX - healthHalfWidth, bottom - targetHeight - dp(7f), centerX - healthHalfWidth + healthHalfWidth * 2f * unit.hp / unit.maxHp, bottom - targetHeight - dp(2f), paint)
+            val nameplateTop = if (isBoss) drawBossNameplate(canvas, target, unit.name) else target.top
+            if (now < unit.alertIndicatorUntil) {
+                drawMonsterAlertIndicator(canvas, target.centerX(), nameplateTop - dp(10f), now, unit.alertIndicatorUntil)
+            }
         }
     }
 
-    private fun drawMonsterAlertIndicator(canvas: Canvas, target: RectF, now: Long, until: Long) {
+    private fun drawBossNameplate(canvas: Canvas, target: RectF, name: String): Float {
+        textPaint.typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+        textPaint.textSize = dp(12f)
+        val horizontalPadding = dp(13f)
+        val width = (textPaint.measureText(name) + horizontalPadding * 2f).coerceAtLeast(dp(82f))
+        val bottom = target.top - dp(13f)
+        val plate = RectF(
+            target.centerX() - width / 2f,
+            bottom - dp(25f),
+            target.centerX() + width / 2f,
+            bottom
+        )
+        paint.setShadowLayer(dp(7f), 0f, dp(3f), 0xEE000000.toInt())
+        paint.color = 0xEB250B0C.toInt()
+        canvas.drawRoundRect(plate, dp(6f), dp(6f), paint)
+        paint.clearShadowLayer()
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = dp(1.5f)
+        paint.color = 0xFFFFC95C.toInt()
+        canvas.drawRoundRect(plate, dp(6f), dp(6f), paint)
+        paint.style = Paint.Style.FILL
+        canvas.drawCircle(plate.left + dp(5f), plate.centerY(), dp(2f), paint)
+        canvas.drawCircle(plate.right - dp(5f), plate.centerY(), dp(2f), paint)
+        textPaint.textAlign = Paint.Align.CENTER
+        textPaint.color = 0xFFFFE7AC.toInt()
+        textPaint.setShadowLayer(dp(3f), 0f, dp(2f), Color.BLACK)
+        canvas.drawText(name, plate.centerX(), plate.centerY() - (textPaint.ascent() + textPaint.descent()) / 2f, textPaint)
+        textPaint.clearShadowLayer()
+        textPaint.textAlign = Paint.Align.LEFT
+        textPaint.typeface = Typeface.DEFAULT
+        return plate.top
+    }
+
+    private fun drawMonsterAlertIndicator(canvas: Canvas, centerX: Float, baselineY: Float, now: Long, until: Long) {
         val remaining = (until - now).coerceAtLeast(0L)
         val pulse = 1f + sin(now / 70f) * .10f
         val alpha = if (remaining < 180L) (remaining / 180f * 255).toInt() else 255
@@ -3936,10 +4039,10 @@ class DungeonDemoView(
         textPaint.textSize = dp(22f) * pulse
         textPaint.color = Color.BLACK
         textPaint.alpha = alpha
-        canvas.drawText("!!!", target.centerX() + dp(2f), target.top - dp(10f) + dp(2f), textPaint)
+        canvas.drawText("!!!", centerX + dp(2f), baselineY + dp(2f), textPaint)
         textPaint.setShadowLayer(dp(4f), 0f, dp(2f), Color.BLACK)
         textPaint.color = 0xFFFF4D42.toInt()
-        canvas.drawText("!!!", target.centerX(), target.top - dp(10f), textPaint)
+        canvas.drawText("!!!", centerX, baselineY, textPaint)
         textPaint.clearShadowLayer()
         textPaint.alpha = 255
         textPaint.textAlign = Paint.Align.LEFT
@@ -4003,7 +4106,11 @@ class DungeonDemoView(
         val tileHeight = area.height() / visibleRows
         val centerX = area.left + (unit.drawColumn - cameraColumn + .5f) * tileWidth
         val bottom = area.top + (unit.drawRow - cameraRow + 1f) * tileHeight + tileHeight * .1f
-        val targetHeight = tileHeight * if (unit === player) 1.45f else 1.16f
+        val targetHeight = tileHeight * when {
+            unit === player -> 1.45f
+            isBossMonster(unit) -> 1.60f
+            else -> 1.16f
+        }
         val targetWidth = targetHeight * frameWidth / frameHeight
         return RectF(centerX - targetWidth / 2f, bottom - targetHeight, centerX + targetWidth / 2f, bottom)
     }

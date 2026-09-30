@@ -5,6 +5,9 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.text.Editable
+import android.text.InputType
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -96,6 +99,8 @@ class MainActivity : GameActivity() {
     private val villageInteractionOverlay get() = villageMapOverlay
     private val travelingMerchantHotspot get() = villageMapOverlay.travelingMerchant
     private var shopOverlay: FrameLayout? = null
+    private var shopOwnedItemsScrollY = 0
+    private var shopCatalogScrollY = 0
     private var travelingMerchantList: LinearLayout? = null
     private lateinit var settingsController: GameSettingsController
     private var musicPlayer: GameMusicPlayer? = null
@@ -645,6 +650,8 @@ class MainActivity : GameActivity() {
         if (shopOverlay != null) return
         villageSoundPlayer?.playDoorOpen()
         setVillageHotspotsEnabled(false)
+        shopOwnedItemsScrollY = 0
+        shopCatalogScrollY = 0
         showShopInterface(isBlacksmith)
     }
 
@@ -715,6 +722,7 @@ class MainActivity : GameActivity() {
             this.background = antiquePanel(COLOR_LEATHER, COLOR_GOLD_DARK, 12f, 2)
         }
         val leftScroll = gameScrollView(leftColumn)
+        restoreShopScroll(leftScroll, shopOwnedItemsScrollY) { shopOwnedItemsScrollY = it }
         content.addView(leftScroll, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1.12f).apply {
             marginEnd = dp(12)
         })
@@ -744,6 +752,7 @@ class MainActivity : GameActivity() {
 
         val storeList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val scrollView = gameScrollView(storeList)
+        restoreShopScroll(scrollView, shopCatalogScrollY) { shopCatalogScrollY = it }
         rightColumn.addView(scrollView, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             0,
@@ -1063,18 +1072,36 @@ class MainActivity : GameActivity() {
         }
         row.addView(info, LinearLayout.LayoutParams(0, dp(64), 1f))
 
-        val quantityText = TextView(this).apply {
-            text = quantity.toString()
+        val consumable = ItemCatalog.isConsumable(itemCode)
+        val quantityText = EditText(this).apply {
+            setText(quantity.toString())
             setTextColor(Color.WHITE)
             textSize = 17f
             gravity = Gravity.CENTER
+            inputType = InputType.TYPE_CLASS_NUMBER
+            isSingleLine = true
+            setSelectAllOnFocus(true)
+            isFocusable = consumable
+            isFocusableInTouchMode = consumable
+            isCursorVisible = consumable
+            setPadding(0, 0, 0, 0)
             background = antiquePanel(COLOR_LEATHER_DARK, COLOR_GOLD_DARK, 5f, 1)
         }
+        quantityText.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(text: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(text: CharSequence?, start: Int, before: Int, count: Int) {
+                text?.toString()?.toIntOrNull()?.coerceIn(1, 99)?.let {
+                    quantity = it
+                    imageQuantity.text = it.toString()
+                }
+            }
+            override fun afterTextChanged(text: Editable?) = Unit
+        })
         val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         controls.addView(antiqueButton("−", dp(28), dp(32)).apply {
             setOnClickListener {
                 if (quantity > 1) quantity--
-                quantityText.text = quantity.toString()
+                quantityText.setText(quantity.toString())
                 imageQuantity.text = quantity.toString()
             }
         })
@@ -1085,7 +1112,7 @@ class MainActivity : GameActivity() {
         controls.addView(antiqueButton("+", dp(28), dp(32)).apply {
             setOnClickListener {
                 if (quantity < 99) quantity++
-                quantityText.text = quantity.toString()
+                quantityText.setText(quantity.toString())
                 imageQuantity.text = quantity.toString()
             }
         })
@@ -1093,6 +1120,8 @@ class MainActivity : GameActivity() {
         row.addView(antiqueButton("구매", dp(60), dp(36)).apply {
             typeface = Typeface.DEFAULT_BOLD
             setOnClickListener {
+                quantity = quantityText.text.toString().toIntOrNull()?.coerceIn(1, 99) ?: 1
+                quantityText.setText(quantity.toString())
                 isEnabled = false
                 val restoreButton = { isEnabled = true }
                 purchaseOverride?.invoke(quantity, restoreButton)
@@ -1138,6 +1167,17 @@ class MainActivity : GameActivity() {
         (overlay.parent as? ViewGroup)?.removeView(overlay)
         shopOverlay = null
         showShopInterface(isBlacksmith)
+    }
+
+    private fun restoreShopScroll(
+        scrollView: android.widget.ScrollView,
+        position: Int,
+        onChanged: (Int) -> Unit
+    ) {
+        scrollView.post {
+            scrollView.scrollTo(0, position.coerceAtLeast(0))
+            scrollView.setOnScrollChangeListener { _, _, scrollY, _, _ -> onChanged(scrollY) }
+        }
     }
 
     private fun createFacilityContent(title: String, backgroundAsset: String, scrollContent: Boolean = true): LinearLayout {
